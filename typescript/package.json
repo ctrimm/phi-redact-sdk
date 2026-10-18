@@ -1,0 +1,35 @@
+{
+  "author": "Cory Trimm",
+  "description": "Compact PII/PHI redaction: deterministic rules layer, optional neural layer via the phi-redact server",
+  "devDependencies": {
+    "typescript": "^5.6.0"
+  },
+  "exports": {
+    ".": {
+      "default": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "pii",
+    "phi",
+    "redaction",
+    "de-identification",
+    "nlp"
+  ],
+  "license": "Apache-2.0",
+  "main": "./dist/index.js",
+  "name": "phi-redact",
+  "scripts": {
+    "build": "tsc",
+    "test": "npm run build && node --test test/redact.test.js"
+  },
+  "type": "module",
+  "types": "./dist/index.d.ts",
+  "version": "0.1.0"
+}
