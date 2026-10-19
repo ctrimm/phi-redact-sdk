@@ -38,6 +38,11 @@ def _ts_results(notes):
     dist = os.path.join(ROOT, "typescript", "dist", "index.js")
     if not os.path.exists(dist):
         pytest.skip("typescript/dist not built; run: cd typescript && npm run build")
+    src = os.path.join(ROOT, "typescript", "src", "rules.ts")
+    compiled = os.path.join(ROOT, "typescript", "dist", "rules.js")
+    if os.path.getmtime(src) > os.path.getmtime(compiled):
+        pytest.fail("typescript/dist is stale (src/rules.ts changed); "
+                    "run: cd typescript && npm run build")
     proc = subprocess.run(
         [node, os.path.join(HERE, "run_ts.mjs"),
          os.path.join(HERE, "notes.jsonl")],

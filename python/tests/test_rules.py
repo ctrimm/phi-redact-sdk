@@ -260,3 +260,13 @@ class TestPhoneBoundaries:
     def test_plain_phone_still_matches(self):
         ents = phi_redact.scan("Call 415-555-0132.")
         assert [e["text"] for e in ents] == ["415-555-0132"]
+
+    def test_paren_glued_to_letter_fully_consumed(self):
+        ents = phi_redact.scan("x(312) 555-0167")
+        assert len(ents) == 1
+        assert ents[0]["text"] == "(312) 555-0167"
+        r = phi_redact.redact("x(312) 555-0167")
+        assert r.redacted == "x[PHONE_1]"
+
+    def test_paren_glued_to_letter_without_phone_no_match(self):
+        assert phi_redact.scan("x(abc)") == []

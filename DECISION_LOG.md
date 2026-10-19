@@ -61,3 +61,18 @@ applied identically to the TypeScript port, covered by the parity e2e.
 needs the same one-line change: replace the leading `\b` in its phone
 pattern with `(?<![\w])`.
 **Date:** 2026-10-18.
+
+## 2026-10-18 — Phone pattern also consumes "(" glued to a word char
+
+**Decision:** the PHONE rule's start became `(?:(?<=\w)\(|(?<![\w]))`,
+so `x(312) 555-0167` redacts to `x[PHONE_1]` instead of `x([PHONE_1]`.
+**Evidence:** Cory's follow-up report; same bug class as the 2026-10-18
+`(`/`+` fix. Validated against a 12-case battery first (`x(abc)` still
+matches nothing, `abc415-555-0132` still rejected, `x(abc) 415-555-0132`
+still finds the later phone). Applied identically to the TypeScript port;
+parity e2e covers it (now 9 notes). The parity harness now fails fast
+with "typescript/dist is stale" instead of a misleading span diff when
+the TS build is older than the sources.
+**Coordination:** same one-line Swift-port delta, extended: replace the
+pattern's leading `\b` with `(?:(?<=\w)\(|(?<![\w]))`.
+**Date:** 2026-10-18.

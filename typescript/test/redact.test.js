@@ -170,3 +170,14 @@ describe("phone boundaries", () => {
     assert.ok(!scan("abc415-555-0132").some((e) => e.label === "PHONE"));
   });
 });
+
+describe("phone paren glued to word", () => {
+  it("consumes the paren in x(312) 555-0167", () => {
+    const r = redact("x(312) 555-0167");
+    assert.equal(r.redacted, "x[PHONE_1]");
+    assert.deepEqual(r.mapping, { "[PHONE_1]": "(312) 555-0167" });
+  });
+  it("matches nothing for x(abc)", () => {
+    assert.deepEqual(scan("x(abc)"), []);
+  });
+});

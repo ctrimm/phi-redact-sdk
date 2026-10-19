@@ -97,9 +97,10 @@ const PATTERNS: Pattern[] = [
   },
   {
     label: "PHONE",
-    // (?<![\w]) instead of a leading \b: a "(" or "+" directly before the
-    // digits belongs to the number and must be consumed, not left behind.
-    source: String.raw`(?<![\w])(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}(?:\s*(?:x|ext\.?)\s*\d{1,6})?\b`,
+    // A leading "(" or "+" belongs to the number and must be consumed.
+    // (?<![\w]) is the normal start; (?<=\w)\( additionally lets the match
+    // begin at a "(" glued to a word char, as in "x(312) 555-0167".
+    source: String.raw`(?:(?<=\w)\(|(?<![\w]))(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}(?:\s*(?:x|ext\.?)\s*\d{1,6})?\b`,
     flags: "g",
   },
   {
