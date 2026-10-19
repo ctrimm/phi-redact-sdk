@@ -76,3 +76,36 @@ the TS build is older than the sources.
 **Coordination:** same one-line Swift-port delta, extended: replace the
 pattern's leading `\b` with `(?:(?<=\w)\(|(?<![\w]))`.
 **Date:** 2026-10-18.
+
+## 2026-10-19 — New deterministic rules: EIN, ABA routing, passport, DL, gov ID, bank account
+
+**Decision:** added six rule families to both SDKs (Python + TypeScript,
+parity-tested): TAX_ID (`\d{2}-\d{7}`, EIN format), ROUTING_NUMBER
+(`\d{9}` gated by the ABA checksum — only ~1/10 random 9-digit strings
+pass, so plain SSNs are not mislabeled), BANK_ACCOUNT (context-anchored
+on "account", digits in capture group 1 so the span excludes the anchor),
+PASSPORT (`[A-Z]\d{8}`), DRIVERS_LICENSE (`[A-Z]\d{7}` and `[A-Z]{2}-L\d{6}`),
+GOVERNMENT_ID (`[A-Z]{3}\d{10}` USCIS receipt and `A\d{9}` alien number).
+**Evidence:** golden 164-case eval. Rules-only full-value recall 0.354 ->
+0.500; rules+v7 0.786 -> 0.885. Per-type: TAX_ID 0.000 -> 1.000, PASSPORT
+0.167 -> 1.000, BANK_ACCOUNT 0.750 -> 1.000, GOVERNMENT_ID 0.000 -> 0.667
+(the two dashed formats remain for the neural net), ROUTING_NUMBER and
+DRIVERS_LICENSE now deterministic at 1.000. Precision held (0.749).
+**Date:** 2026-10-19.
+
+## 2026-10-19 — v8 training direction (no ai4privacy, Colab, no LLM verifier)
+
+**Decision:** v8 trains on Google Colab from an extended synthetic generator
+(`gen_synth_v8.py`); ai4privacy is excluded (its license is `license:other`,
+commercial use requires contacting licensing@ai4privacy.com — Cory said do
+not use it); no LLM judge/verifier tier.
+**Evidence:** the eval pinpoints the gap as training data, not model
+capacity: NAME 0.327 and ADDRESS 0.306 fail on conversational introductions
+("my name is X") and address components the clinical-notes-only v7 corpus
+never showed the model. TAX_ID/GOVERNMENT_ID were absent from training
+entirely — no teacher distills what isn't in the data. gen_synth_v8.py adds
+GOVERNMENT_ID, conversational name templates (particles, lowercase),
+address-component spans, and boosted weak-label volume. The v8 notebook
+(`phi_redact_colab8.ipynb`) pins marker ids from the tokenizer and gates
+on the golden set (target: mid-90s full-value recall).
+**Date:** 2026-10-19.

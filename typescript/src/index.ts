@@ -20,6 +20,7 @@
 
 export type { Entity, EntitySource, RedactionResult } from "./types.js";
 export {
+  abaRoutingOk,
   ibanValid,
   luhnOk,
   redactText,

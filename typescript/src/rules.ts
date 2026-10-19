@@ -64,19 +64,40 @@ export function ibanValid(iban: string): boolean {
   return BigInt(digits) % 97n === 1n;
 }
 
+/**
+ * True if the 9-digit string passes the ABA routing-number checksum:
+ * 3*(d1+d4+d7) + 7*(d2+d5+d8) + (d3+d6+d9) == 0 (mod 10).
+ * Only ~1 in 10 random 9-digit strings pass, so this is a strong gate
+ * against plain 9-digit SSNs and other numeric noise.
+ */
+export function abaRoutingOk(number: string): boolean {
+  const digits = number.replace(/\D/g, "").split("").map(Number);
+  if (digits.length !== 9) return false;
+  const d = digits;
+  return (
+    (3 * (d[0] + d[3] + d[6]) + 7 * (d[1] + d[4] + d[7]) + (d[2] + d[5] + d[8])) %
+      10 ===
+    0
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Pattern scanners: regex -> candidate spans, gated by validators above.
 // ---------------------------------------------------------------------------
+// Most patterns use group 0 (whole match); context-anchored patterns like
+// BANK_ACCOUNT capture just the value in group 1 so the span covers only
+// the number, not the anchor word.
 
 interface Pattern {
   label: string;
   source: string;
   flags: string;
   validate?: (s: string) => boolean;
+  group?: number;
 }
 
 const PATTERNS: Pattern[] = [
-  // (label, regex source, flags, validator or undefined)
+  // (label, regex source, flags, validator or undefined, group or 0)
   {
     label: "CREDITCARD",
     source: String.raw`\b(?:\d[ -]?){13,19}\b`,
@@ -90,10 +111,52 @@ const PATTERNS: Pattern[] = [
     validate: ssnValid,
   },
   {
+    label: "TAX_ID",
+    source: String.raw`\b\d{2}-\d{7}\b`, // EIN: 12-3456789
+    flags: "g",
+  },
+  {
     label: "IBAN",
     source: String.raw`\b[A-Z]{2}\d{2}[A-Z0-9]{11,30}\b`,
     flags: "g",
     validate: ibanValid,
+  },
+  {
+    label: "ROUTING_NUMBER",
+    source: String.raw`\b\d{9}\b`,
+    flags: "g",
+    validate: abaRoutingOk,
+  },
+  {
+    label: "BANK_ACCOUNT",
+    source: String.raw`\baccount(?:\s*(?:#|no\.?))?\s+(\d{9,17})\b`,
+    flags: "gi",
+    group: 1,
+  },
+  {
+    label: "PASSPORT",
+    source: String.raw`\b[A-Z]\d{8}\b`, // Y12973198
+    flags: "g",
+  },
+  {
+    label: "DRIVERS_LICENSE",
+    source: String.raw`\b[A-Z]\d{7}\b`, // D1315565
+    flags: "g",
+  },
+  {
+    label: "DRIVERS_LICENSE",
+    source: String.raw`\b[A-Z]{2}-L\d{6}\b`, // CA-L123456
+    flags: "g",
+  },
+  {
+    label: "GOVERNMENT_ID",
+    source: String.raw`\b[A-Z]{3}\d{10}\b`, // USCIS LIN2190012345
+    flags: "g",
+  },
+  {
+    label: "GOVERNMENT_ID",
+    source: String.raw`\bA\d{9}\b`, // alien number A123456789
+    flags: "g",
   },
   {
     label: "PHONE",
@@ -136,16 +199,18 @@ export function scan(text: string): Entity[] {
   const free = (s: number, e: number): boolean =>
     claimed.every(([cs, ce]) => e <= cs || s >= ce);
 
-  for (const { label, source, flags, validate } of [
+  for (const { label, source, flags, validate, group } of [
     ...PATTERNS,
     ...MRN_PATTERNS,
   ]) {
     // Fresh RegExp per scan: /g regexes are stateful (lastIndex).
     const re = new RegExp(source, flags);
     for (const m of text.matchAll(re)) {
-      const start = m.index ?? 0;
-      // The card regex can swallow a trailing separator; trim it.
-      const value = m[0].replace(/[ -]+$/, "");
+      const grp = group ?? 0;
+      // Context-anchored patterns capture just the value in group `grp`;
+      // the span covers only the value, not the anchor word.
+      const value = grp ? m[grp] : m[0].replace(/[ -]+$/, "");
+      const start = (m.index ?? 0) + (grp ? m[0].indexOf(value) : 0);
       const end = start + value.length;
       if (!free(start, end)) continue;
       if (validate && !validate(value)) continue;

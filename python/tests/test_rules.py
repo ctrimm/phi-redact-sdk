@@ -270,3 +270,93 @@ class TestPhoneBoundaries:
 
     def test_paren_glued_to_letter_without_phone_no_match(self):
         assert phi_redact.scan("x(abc)") == []
+
+
+# ---------------------------------------------------------------------------
+# New deterministic rules (2026-10-19): EIN, ABA routing, passport, DL,
+# government ID, bank account.
+# ---------------------------------------------------------------------------
+
+class TestAbaRoutingOk:
+    def test_valid_routing_numbers(self):
+        assert rules.aba_routing_ok("021000021") is True   # JPMorgan Chase
+        assert rules.aba_routing_ok("494969870") is True   # eval case
+        assert rules.aba_routing_ok("336229607") is True
+        assert rules.aba_routing_ok("481566888") is True
+        assert rules.aba_routing_ok("746787360") is True
+
+    def test_invalid_routing_numbers(self):
+        assert rules.aba_routing_ok("123456789") is False  # checksum fails
+        assert rules.aba_routing_ok("809096606") is False  # plain SSN, not routing
+        assert rules.aba_routing_ok("12345678") is False   # wrong length
+        assert rules.aba_routing_ok("1234567890") is False
+
+
+class TestNewRules:
+    def _labels(self, text):
+        return {e["label"]: e["text"] for e in phi_redact.scan(text)}
+
+    def test_tax_id_ein(self):
+        found = self._labels("EIN 18-6721452 on file.")
+        assert found.get("TAX_ID") == "18-6721452"
+
+    def test_tax_id_not_confused_with_ssn_or_date(self):
+        ents = phi_redact.scan("SSN 234-56-7890, EIN 18-6721452, DOB 03/14/1978.")
+        by_label = {}
+        for e in ents:
+            by_label.setdefault(e["label"], []).append(e["text"])
+        assert by_label["SSN"] == ["234-56-7890"]
+        assert by_label["TAX_ID"] == ["18-6721452"]
+        assert by_label["DATE"] == ["03/14/1978"]
+
+    def test_routing_number(self):
+        found = self._labels("Routing number 494969870 for direct deposit.")
+        assert found.get("ROUTING_NUMBER") == "494969870"
+
+    def test_routing_rejects_non_checksum(self):
+        ents = phi_redact.scan("Code 123456789 is not a routing number.")
+        assert not any(e["label"] == "ROUTING_NUMBER" for e in ents)
+
+    def test_bank_account_context_anchored(self):
+        ents = phi_redact.scan("Account 713591432266 at First Bank.")
+        assert len(ents) == 1
+        assert ents[0]["label"] == "BANK_ACCOUNT"
+        assert ents[0]["text"] == "713591432266"
+
+    def test_bank_account_span_excludes_anchor(self):
+        text = "Account 713591432266 at First Bank."
+        ents = phi_redact.scan(text)
+        assert text[ents[0]["start"]:ents[0]["end"]] == "713591432266"
+
+    def test_bank_account_needs_anchor(self):
+        ents = phi_redact.scan("Number 713591432266 appears alone.")
+        assert not any(e["label"] == "BANK_ACCOUNT" for e in ents)
+
+    def test_passport(self):
+        found = self._labels("Passport Y12973198 verified.")
+        assert found.get("PASSPORT") == "Y12973198"
+
+    def test_drivers_license(self):
+        found = self._labels("DL D1315565 and CA-L123456 on file.")
+        texts = [e["text"] for e in phi_redact.scan("DL D1315565 and CA-L123456 on file.")
+                 if e["label"] == "DRIVERS_LICENSE"]
+        assert texts == ["D1315565", "CA-L123456"]
+
+    def test_government_id(self):
+        ents = phi_redact.scan("USCIS LIN2190012345; alien A123456789.")
+        by_label = {}
+        for e in ents:
+            by_label.setdefault(e["label"], []).append(e["text"])
+        assert by_label["GOVERNMENT_ID"] == ["LIN2190012345", "A123456789"]
+
+    def test_new_rules_redact_round_trip(self):
+        text = "EIN 18-6721452, routing 494969870, passport Y12973198."
+        r = phi_redact.redact(text)
+        assert r.redacted == ("EIN [TAX_ID_1], routing [ROUTING_NUMBER_1], "
+                              "passport [PASSPORT_1].")
+        assert r.mapping == {
+            "[TAX_ID_1]": "18-6721452",
+            "[ROUTING_NUMBER_1]": "494969870",
+            "[PASSPORT_1]": "Y12973198",
+        }
+        assert phi_redact.restore(r.redacted, r.mapping) == text

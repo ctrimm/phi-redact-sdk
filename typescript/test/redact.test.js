@@ -181,3 +181,51 @@ describe("phone paren glued to word", () => {
     assert.deepEqual(scan("x(abc)"), []);
   });
 });
+
+describe("new deterministic rules (2026-10-19)", () => {
+  it("abaRoutingOk gates on the checksum", async () => {
+    const { abaRoutingOk } = await import("../dist/index.js");
+    assert.equal(abaRoutingOk("021000021"), true);
+    assert.equal(abaRoutingOk("494969870"), true);
+    assert.equal(abaRoutingOk("123456789"), false);
+    assert.equal(abaRoutingOk("809096606"), false); // plain SSN, not routing
+    assert.equal(abaRoutingOk("12345678"), false);
+  });
+  it("finds TAX_ID, ROUTING_NUMBER, BANK_ACCOUNT, PASSPORT, DRIVERS_LICENSE, GOVERNMENT_ID", () => {
+    const text =
+      "EIN 18-6721452, routing 494969870, Account 713591432266, " +
+      "passport Y12973198, DL D1315565, USCIS LIN2190012345.";
+    const byLabel = {};
+    for (const e of scan(text)) {
+      (byLabel[e.label] ??= []).push(e.text);
+      assert.equal(text.slice(e.start, e.end), e.text);
+    }
+    assert.deepEqual(byLabel["TAX_ID"], ["18-6721452"]);
+    assert.deepEqual(byLabel["ROUTING_NUMBER"], ["494969870"]);
+    assert.deepEqual(byLabel["BANK_ACCOUNT"], ["713591432266"]);
+    assert.deepEqual(byLabel["PASSPORT"], ["Y12973198"]);
+    assert.deepEqual(byLabel["DRIVERS_LICENSE"], ["D1315565"]);
+    assert.deepEqual(byLabel["GOVERNMENT_ID"], ["LIN2190012345"]);
+  });
+  it("bank account span excludes the anchor word", () => {
+    const text = "Account 713591432266 at First Bank.";
+    const [e] = scan(text);
+    assert.equal(e.label, "BANK_ACCOUNT");
+    assert.equal(text.slice(e.start, e.end), "713591432266");
+  });
+  it("does not label non-checksum 9-digit numbers as routing", () => {
+    assert.ok(
+      !scan("Code 123456789 is not a routing number.").some(
+        (e) => e.label === "ROUTING_NUMBER",
+      ),
+    );
+  });
+  it("keeps SSN, TAX_ID and DATE distinct", () => {
+    const ents = scan("SSN 234-56-7890, EIN 18-6721452, DOB 03/14/1978.");
+    const byLabel = {};
+    for (const e of ents) (byLabel[e.label] ??= []).push(e.text);
+    assert.deepEqual(byLabel["SSN"], ["234-56-7890"]);
+    assert.deepEqual(byLabel["TAX_ID"], ["18-6721452"]);
+    assert.deepEqual(byLabel["DATE"], ["03/14/1978"]);
+  });
+});

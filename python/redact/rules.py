@@ -63,32 +63,59 @@ def iban_valid(iban: str) -> bool:
     return int(digits) % 97 == 1
 
 
+def aba_routing_ok(number: str) -> bool:
+    """True if the 9-digit string passes the ABA routing-number checksum.
+
+    Checksum: 3*(d1+d4+d7) + 7*(d2+d5+d8) + (d3+d6+d9) == 0 (mod 10).
+    Only ~1 in 10 random 9-digit strings pass, so this is a strong gate
+    against plain 9-digit SSNs and other numeric noise.
+    """
+    d = [int(c) for c in number if c.isdigit()]
+    if len(d) != 9:
+        return False
+    return (3 * (d[0] + d[3] + d[6]) + 7 * (d[1] + d[4] + d[7])
+            + (d[2] + d[5] + d[8])) % 10 == 0
+
+
 # ---------------------------------------------------------------------------
 # Pattern scanners: regex -> candidate spans, gated by validators above.
 # ---------------------------------------------------------------------------
+# Tuple: (label, compiled regex, validator or None, match group to use).
+# Most patterns use group 0 (whole match); context-anchored patterns like
+# BANK_ACCOUNT capture just the value in group 1 so the span covers only
+# the number, not the anchor word.
 
-_PATTERNS: list[tuple[str, re.Pattern, callable | None]] = [
-    # (label, compiled regex, validator or None)
+_PATTERNS: list[tuple[str, re.Pattern, callable | None, int]] = [
+    # (label, compiled regex, validator or None, group)
     ("CREDITCARD", re.compile(r"\b(?:\d[ -]?){13,19}\b"),
-     lambda s: luhn_ok(s)),
-    ("SSN", re.compile(r"\b\d{3}-\d{2}-\d{4}\b"), ssn_valid),
-    ("IBAN", re.compile(r"\b[A-Z]{2}\d{2}[A-Z0-9]{11,30}\b"), iban_valid),
+     lambda s: luhn_ok(s), 0),
+    ("SSN", re.compile(r"\b\d{3}-\d{2}-\d{4}\b"), ssn_valid, 0),
+    ("TAX_ID", re.compile(r"\b\d{2}-\d{7}\b"), None, 0),  # EIN: 12-3456789
+    ("IBAN", re.compile(r"\b[A-Z]{2}\d{2}[A-Z0-9]{11,30}\b"), iban_valid, 0),
+    ("ROUTING_NUMBER", re.compile(r"\b\d{9}\b"), aba_routing_ok, 0),
+    ("BANK_ACCOUNT", re.compile(r"\baccount(?:\s*(?:#|no\.?))?\s+(\d{9,17})\b",
+                                re.IGNORECASE), None, 1),
+    ("PASSPORT", re.compile(r"\b[A-Z]\d{8}\b"), None, 0),  # Y12973198
+    ("DRIVERS_LICENSE", re.compile(r"\b[A-Z]\d{7}\b"), None, 0),  # D1315565
+    ("DRIVERS_LICENSE", re.compile(r"\b[A-Z]{2}-L\d{6}\b"), None, 0),  # CA-L123456
+    ("GOVERNMENT_ID", re.compile(r"\b[A-Z]{3}\d{10}\b"), None, 0),  # USCIS LIN2190012345
+    ("GOVERNMENT_ID", re.compile(r"\bA\d{9}\b"), None, 0),  # alien number A123456789
     ("PHONE", re.compile(
         # A leading "(" or "+" belongs to the number and must be consumed.
         # (?<![\w]) is the normal start; (?<=\w)\( additionally lets the
         # match begin at a "(" glued to a word char, as in "x(312) 555-0167".
         r"(?:(?<=\w)\(|(?<![\w]))(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}(?:\s*(?:x|ext\.?)\s*\d{1,6})?\b"),
-     None),
-    ("EMAIL", re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"), None),
-    ("URL", re.compile(r"\bhttps?://[^\s<>\"]+"), None),
+     None, 0),
+    ("EMAIL", re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"), None, 0),
+    ("URL", re.compile(r"\bhttps?://[^\s<>\"]+"), None, 0),
     ("IP", re.compile(
         r"\b(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\b"),
-     None),
-    ("ZIP", re.compile(r"\b\d{5}(?:-\d{4})?\b"), None),
+     None, 0),
+    ("ZIP", re.compile(r"\b\d{5}(?:-\d{4})?\b"), None, 0),
     ("DATE", re.compile(
         r"\b(?:\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4}|\d{4}-\d{2}-\d{2}|"
         r"(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]* \d{1,2},? \d{4})\b",
-        re.IGNORECASE), None),
+        re.IGNORECASE), None, 0),
 ]
 
 _MRN_RES = [
@@ -106,11 +133,17 @@ def scan(text: str) -> list[dict]:
     def free(s: int, e: int) -> bool:
         return all(e <= cs or s >= ce for cs, ce in claimed)
 
-    for label, rx, validator in _PATTERNS:
+    for label, rx, validator, grp in _PATTERNS:
         for m in rx.finditer(text):
-            s, e = m.span()
-            value = m.group().rstrip(" -")  # regex can swallow a trailing separator
-            e = s + len(value)
+            if grp:
+                # Context-anchored pattern: the value is in group `grp`,
+                # the span covers only the value, not the anchor.
+                s, e = m.span(grp)
+                value = m.group(grp)
+            else:
+                s, e = m.span()
+                value = m.group().rstrip(" -")  # regex can swallow a trailing separator
+                e = s + len(value)
             if not free(s, e):
                 continue
             if validator is not None and not validator(value):
@@ -162,7 +195,9 @@ def restore_text(redacted: str, mapping: dict[str, str]) -> str:
 if __name__ == "__main__":
     demo = ("Patient John Smith, SSN 123-45-6789, called from 415-555-0132. "
             "Card 4111111111111111 charged; random 1234567812345678 ignored. "
-            "Email jsmith@example.com, MRN 48291375.")
+            "Email jsmith@example.com, MRN 48291375. EIN 12-3456789, "
+            "routing 021000021, Account 713591432266, passport Y12973198, "
+            "DL D1315565, USCIS LIN2190012345.")
     for e in scan(demo):
         print(e["label"], repr(e["text"]))
     red, mapping = redact_text(demo)
