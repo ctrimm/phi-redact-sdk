@@ -1,0 +1,231 @@
+"""Unit tests for the phi-redact Python SDK (rules layer).
+
+Covers validators, scan spans, placeholder numbering, merge policy,
+restore round-trips, and the Redactor class in rules-only mode.
+Synthetic fixtures only — no real PII anywhere in this file.
+"""
+
+import json
+
+import pytest
+
+import phi_redact
+from phi_redact import (
+    DEFAULT_MAX_LEN,
+    DEFAULT_THRESHOLD,
+    RedactionResult,
+    Redactor,
+    apply_placeholders,
+    merge_entities,
+)
+from redact import rules
+
+NOTE = (
+    "Pt Maria Santos DOB 03/14/1978 SSN 234-56-7890, ph 415-555-0132, "
+    "jane@example.com, card 4111111111111111, MRN 48291375, ZIP 90210."
+)
+
+
+# ---------------------------------------------------------------------------
+# validators
+# ---------------------------------------------------------------------------
+
+class TestValidators:
+    def test_luhn_ok(self):
+        assert rules.luhn_ok("4111111111111111") is True
+        assert rules.luhn_ok("1234567812345678") is False
+        assert rules.luhn_ok("123") is False
+
+    def test_ssn_valid(self):
+        assert rules.ssn_valid("234-56-7890") is True
+        assert rules.ssn_valid("000-12-3456") is False   # bad area
+        assert rules.ssn_valid("666-12-3456") is False   # bad area
+        assert rules.ssn_valid("900-12-3456") is False   # bad area
+        assert rules.ssn_valid("234-00-7890") is False   # bad group
+        assert rules.ssn_valid("234-56-0000") is False   # bad serial
+
+    def test_iban_valid(self):
+        assert rules.iban_valid("GB29NWBK60161331926819") is True
+        assert rules.iban_valid("GB29NWBK60161331926818") is False
+
+
+# ---------------------------------------------------------------------------
+# scan
+# ---------------------------------------------------------------------------
+
+class TestScan:
+    def test_finds_all_entity_types(self):
+        labels = sorted(e["label"] for e in phi_redact.scan(NOTE))
+        assert labels == [
+            "CREDITCARD", "DATE", "EMAIL", "MRN",
+            "PHONE", "SSN", "ZIP",
+        ]
+
+    def test_skips_luhn_invalid_card(self):
+        ents = phi_redact.scan("card 1234567812345678 charged")
+        assert not any(e["text"] == "1234567812345678" for e in ents)
+        assert not any(e["label"] == "CREDITCARD" for e in ents)
+
+    def test_spans_exact_and_sorted(self):
+        text = "call 415-555-0132 or jane@example.com"
+        ents = phi_redact.scan(text)
+        starts = [e["start"] for e in ents]
+        assert starts == sorted(starts)
+        for e in ents:
+            assert text[e["start"]:e["end"]] == e["text"]
+
+    def test_golden_spans(self):
+        """Pinned spans for a fixed note — catches regex regressions."""
+        got = [
+            {"start": e["start"], "end": e["end"], "label": e["label"]}
+            for e in phi_redact.scan(NOTE)
+        ]
+        assert got == [
+            {"start": 20, "end": 30, "label": "DATE"},
+            {"start": 35, "end": 46, "label": "SSN"},
+            {"start": 51, "end": 63, "label": "PHONE"},
+            {"start": 65, "end": 81, "label": "EMAIL"},
+            {"start": 88, "end": 104, "label": "CREDITCARD"},
+            {"start": 106, "end": 118, "label": "MRN"},
+            {"start": 124, "end": 129, "label": "ZIP"},
+        ]
+
+    def test_empty_and_clean_text(self):
+        assert phi_redact.scan("") == []
+        assert phi_redact.scan("nothing to see here, just words") == []
+
+    def test_url_ip_iban(self):
+        ents = phi_redact.scan(
+            "see https://example.com/x from 10.0.0.1, "
+            "IBAN GB29NWBK60161331926819"
+        )
+        by_label = {e["label"]: e["text"] for e in ents}
+        assert by_label["URL"] == "https://example.com/x"
+        assert by_label["IP"] == "10.0.0.1"
+        assert by_label["IBAN"] == "GB29NWBK60161331926819"
+
+
+# ---------------------------------------------------------------------------
+# redact
+# ---------------------------------------------------------------------------
+
+class TestRedact:
+    def test_placeholders_numbered_per_label_in_order(self):
+        r = phi_redact.redact(
+            "Call 415-555-0132 then 212-555-0199 about SSN 234-56-7890.")
+        assert r.redacted == \
+            "Call [PHONE_1] then [PHONE_2] about SSN [SSN_1]."
+        assert r.mapping == {
+            "[PHONE_1]": "415-555-0132",
+            "[PHONE_2]": "212-555-0199",
+            "[SSN_1]": "234-56-7890",
+        }
+        assert r.counts == {"PHONE": 2, "SSN": 1}
+        assert r.engine == "rules"
+        assert r.model is None
+
+    def test_no_entities_leaves_text_untouched(self):
+        r = phi_redact.redact("nothing to see here")
+        assert r.redacted == "nothing to see here"
+        assert r.mapping == {}
+        assert r.counts == {}
+        assert r.entities == []
+
+    def test_original_values_gone_from_redacted(self):
+        r = phi_redact.redact("Call 415-555-0132")
+        assert "415-555-0132" not in r.redacted
+
+    def test_restore_round_trip(self):
+        r = phi_redact.redact(NOTE)
+        assert phi_redact.restore(r.redacted, r.mapping) == NOTE
+
+    def test_to_dict_is_json_serializable(self):
+        r = phi_redact.redact(NOTE)
+        d = json.loads(json.dumps(r.to_dict()))
+        assert set(d) == {
+            "redacted", "entities", "mapping",
+            "counts", "engine", "model",
+        }
+        assert d["engine"] == "rules"
+
+    def test_result_type(self):
+        assert isinstance(phi_redact.redact("hi"), RedactionResult)
+
+
+# ---------------------------------------------------------------------------
+# merge policy
+# ---------------------------------------------------------------------------
+
+def _ent(start, end, label, source, score=0.0):
+    return {"start": start, "end": end, "label": label,
+            "text": "x", "source": source, "score": score}
+
+
+class TestMerge:
+    def test_rules_win_every_overlap(self):
+        rule = _ent(5, 17, "PHONE", "rule")
+        neural = _ent(5, 10, "NAME_PATIENT", "neural", score=0.99)
+        merged = merge_entities([rule], [neural])
+        assert [e["label"] for e in merged] == ["PHONE"]
+
+    def test_neural_neural_keeps_best_score(self):
+        a = _ent(0, 4, "NAME_PATIENT", "neural", score=0.6)
+        b = _ent(0, 4, "NAME_FAMILY", "neural", score=0.9)
+        merged = merge_entities([], [a, b])
+        assert [e["label"] for e in merged] == ["NAME_FAMILY"]
+
+    def test_disjoint_union_sorted(self):
+        rule = _ent(10, 15, "PHONE", "rule")
+        neural = _ent(0, 4, "NAME_PATIENT", "neural", score=0.8)
+        merged = merge_entities([rule], [neural])
+        assert [e["label"] for e in merged] == ["NAME_PATIENT", "PHONE"]
+
+    def test_touching_spans_do_not_overlap(self):
+        # end == start is adjacency, not overlap
+        rule = _ent(0, 4, "PHONE", "rule")
+        neural = _ent(4, 8, "NAME", "neural", score=0.8)
+        assert len(merge_entities([rule], [neural])) == 2
+
+
+class TestPlaceholders:
+    def test_interleaved_labels_numbered_independently(self):
+        text = "a 415-555-0132 b 234-56-7890 c 212-555-0199"
+        ents = rules.scan(text)
+        out, mapping = apply_placeholders(text, ents)
+        assert out == "a [PHONE_1] b [SSN_1] c [PHONE_2]"
+        assert mapping["[PHONE_2]"] == "212-555-0199"
+
+    def test_every_entity_gets_a_placeholder(self):
+        ents = rules.scan(NOTE)
+        out, mapping = apply_placeholders(NOTE, ents)
+        assert len(mapping) == len(ents)
+        for e in ents:
+            assert "placeholder" in e
+
+
+# ---------------------------------------------------------------------------
+# Redactor (rules-only mode)
+# ---------------------------------------------------------------------------
+
+class TestRedactor:
+    def test_rules_only_matches_module_functions(self):
+        r = Redactor()
+        assert r.engine_name == "rules"
+        assert r.redact(NOTE).redacted == phi_redact.redact(NOTE).redacted
+        assert r.scan(NOTE) == phi_redact.scan(NOTE)
+
+    def test_per_call_threshold_without_neural_is_harmless(self):
+        r = Redactor().redact("Call 415-555-0132", threshold=0.9)
+        assert r.redacted == "Call [PHONE_1]"
+
+    def test_missing_model_raises(self):
+        with pytest.raises(Exception):
+            Redactor(model="/nonexistent/model.onnx",
+                     tokenizer="/nonexistent/tokenizer.json")
+
+    def test_defaults(self):
+        assert DEFAULT_THRESHOLD == 0.5
+        assert DEFAULT_MAX_LEN == 384
+
+    def test_version(self):
+        assert phi_redact.__version__ == "0.1.0"

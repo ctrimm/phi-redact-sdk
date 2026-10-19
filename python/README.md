@@ -62,3 +62,10 @@ round-trips; delete it and the copy is anonymized.
 
 This SDK redacts text. It is not a certified de-identification solution
 and makes no HIPAA Expert Determination / Safe Harbor claim.
+
+## Tests
+
+```bash
+python3 -m pytest tests/ -q          # unit + integration (34 tests)
+python3 -m pytest e2e/parity -q      # cross-SDK parity vs the TypeScript port
+```

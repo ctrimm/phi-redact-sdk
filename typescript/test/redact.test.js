@@ -97,3 +97,55 @@ describe("mergeEntities", () => {
     );
   });
 });
+
+describe("scan edge cases", () => {
+  it("returns [] for empty and clean text", () => {
+    assert.deepEqual(scan(""), []);
+    assert.deepEqual(scan("nothing to see here, just words"), []);
+  });
+  it("finds URL, IP, IBAN, ZIP", () => {
+    const ents = scan(
+      "see https://example.com/x from 10.0.0.1, " +
+        "IBAN GB29NWBK60161331926819, ZIP 90210",
+    );
+    const byLabel = Object.fromEntries(ents.map((e) => [e.label, e.text]));
+    assert.equal(byLabel.URL, "https://example.com/x");
+    assert.equal(byLabel.IP, "10.0.0.1");
+    assert.equal(byLabel.IBAN, "GB29NWBK60161331926819");
+    assert.equal(byLabel.ZIP, "90210");
+  });
+  it("marks every entity with source 'rule'", () => {
+    for (const e of scan(NOTE)) assert.equal(e.source, "rule");
+  });
+});
+
+describe("redact edge cases", () => {
+  it("leaves text without entities untouched", () => {
+    const r = redact("nothing to see here");
+    assert.equal(r.redacted, "nothing to see here");
+    assert.deepEqual(r.mapping, {});
+    assert.deepEqual(r.counts, {});
+    assert.deepEqual(r.entities, []);
+  });
+  it("numbers interleaved labels independently in document order", () => {
+    const r = redact("a 415-555-0132 b 234-56-7890 c 212-555-0199");
+    assert.equal(r.redacted, "a [PHONE_1] b [SSN_1] c [PHONE_2]");
+    assert.equal(r.mapping["[PHONE_2]"], "212-555-0199");
+  });
+  it("reports engine 'rules' and no model", () => {
+    const r = redact("Call 415-555-0132");
+    assert.equal(r.engine, "rules");
+    assert.equal(r.model, null);
+  });
+  it("removes original values from the redacted text", () => {
+    const r = redact("Call 415-555-0132");
+    assert.ok(!r.redacted.includes("415-555-0132"));
+  });
+});
+
+describe("VERSION", () => {
+  it("is 0.1.0", async () => {
+    const { VERSION } = await import("../dist/index.js");
+    assert.equal(VERSION, "0.1.0");
+  });
+});

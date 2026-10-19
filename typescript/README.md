@@ -64,3 +64,9 @@ copy is anonymized. Matches the Python SDK's numbering exactly.
 
 This SDK redacts text. It is not a certified de-identification solution
 and makes no HIPAA Expert Determination / Safe Harbor claim.
+
+## Tests
+
+```bash
+npm test   # builds, then runs the unit + RemoteRedactor integration suites
+```
