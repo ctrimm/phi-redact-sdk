@@ -109,3 +109,33 @@ address-component spans, and boosted weak-label volume. The v8 notebook
 (`phi_redact_colab8.ipynb`) pins marker ids from the tokenizer and gates
 on the golden set (target: mid-90s full-value recall).
 **Date:** 2026-10-19.
+
+## 2026-10-19 — Red-team results: 16/27, "acct" anchor fixed, 2 known precision tradeoffs
+
+**Decision:** red-teamed the "1.000" rule types with 27 adversarial cases
+(`evals/rampart-vs-llm/redteam.jsonl`). Cory was right to be skeptical —
+the 1.000s were on 4-6 easy cases. Found 8 misses, fixed 1 (bank account
+"acct"/"ACCT-"/"account number" anchors now match in both SDKs), left 7
+for v8 training (dashless/space-separated SSNs, hyphenated names, PO-box
+and abbreviated addresses, dashed gov IDs — all covered by gravitee or the
+v8 generator). Two false positives documented as inherent tradeoffs, not
+fixed: the EIN pattern matches order numbers ("Order 12-3456789") and the
+DL pattern matches confirmation codes ("Confirmation A1234567") —
+context-gating would cost more recall than it saves.
+**Evidence:** redteam.jsonl scoring: 15/27 -> 16/27 after the anchor fix.
+**Date:** 2026-10-19.
+
+## 2026-10-19 — Gravitee PII dataset added to v8 (Apache 2.0)
+
+**Decision:** `gravitee-io/pii-detection-dataset` (175k examples, 781k
+char-level spans, 25 PII classes, Apache 2.0 — license verified on the
+dataset card) joins the v8 training mix via `convert_gravitee.py`
+(PERSON->NAME_PATIENT, LOCATION->ADDRESS, US_SSN->SSN, US_ITIN->TAX_ID,
+US_PASSPORT->PASSPORT, US_DRIVER_LICENSE->LICENSE, US_BANK_NUMBER->ACCOUNT,
+etc.; 25k-row sample). It covers every neural gap in one package: PERSON
+in 90/100 sampled rows, LOCATION in 75/100. The gretel PII set was passed
+over — Apache 2.0 but no character offsets (spans would need fuzzy
+string-matching).
+**Evidence:** converter verified on 200 rows (770 entities, 0 bad spans,
+exact offsets asserted).
+**Date:** 2026-10-19.

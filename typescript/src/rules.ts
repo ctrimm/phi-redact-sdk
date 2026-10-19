@@ -129,7 +129,7 @@ const PATTERNS: Pattern[] = [
   },
   {
     label: "BANK_ACCOUNT",
-    source: String.raw`\baccount(?:\s*(?:#|no\.?))?\s+(\d{9,17})\b`,
+    source: String.raw`\b(?:account|acct)(?:\s*(?:#|no\.?|number))?[-.\s]*(\d{9,17})\b`,
     flags: "gi",
     group: 1,
   },

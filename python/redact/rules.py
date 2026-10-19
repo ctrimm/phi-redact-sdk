@@ -93,7 +93,7 @@ _PATTERNS: list[tuple[str, re.Pattern, callable | None, int]] = [
     ("TAX_ID", re.compile(r"\b\d{2}-\d{7}\b"), None, 0),  # EIN: 12-3456789
     ("IBAN", re.compile(r"\b[A-Z]{2}\d{2}[A-Z0-9]{11,30}\b"), iban_valid, 0),
     ("ROUTING_NUMBER", re.compile(r"\b\d{9}\b"), aba_routing_ok, 0),
-    ("BANK_ACCOUNT", re.compile(r"\baccount(?:\s*(?:#|no\.?))?\s+(\d{9,17})\b",
+    ("BANK_ACCOUNT", re.compile(r"\b(?:account|acct)(?:\s*(?:#|no\.?|number))?[-.\s]*(\d{9,17})\b",
                                 re.IGNORECASE), None, 1),
     ("PASSPORT", re.compile(r"\b[A-Z]\d{8}\b"), None, 0),  # Y12973198
     ("DRIVERS_LICENSE", re.compile(r"\b[A-Z]\d{7}\b"), None, 0),  # D1315565

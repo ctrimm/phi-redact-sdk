@@ -360,3 +360,14 @@ class TestNewRules:
             "[PASSPORT_1]": "Y12973198",
         }
         assert phi_redact.restore(r.redacted, r.mapping) == text
+
+    def test_bank_account_anchor_variants(self):
+        for text, expected in [
+            ("Acct #987654321098 for payroll.", "987654321098"),
+            ("ACCT-112233445566 on file.", "112233445566"),
+            ("Account number 112233445566 on file.", "112233445566"),
+        ]:
+            ents = [e for e in phi_redact.scan(text) if e["label"] == "BANK_ACCOUNT"]
+            assert len(ents) == 1, text
+            assert ents[0]["text"] == expected, text
+            assert text[ents[0]["start"]:ents[0]["end"]] == expected, text

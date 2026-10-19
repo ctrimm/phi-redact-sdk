@@ -229,3 +229,18 @@ describe("new deterministic rules (2026-10-19)", () => {
     assert.deepEqual(byLabel["DATE"], ["03/14/1978"]);
   });
 });
+
+describe("bank account anchor variants (red-team 2026-10-19)", () => {
+  it("matches acct, ACCT-, and 'account number' anchors", () => {
+    for (const [text, expected] of [
+      ["Acct #987654321098 for payroll.", "987654321098"],
+      ["ACCT-112233445566 on file.", "112233445566"],
+      ["Account number 112233445566 on file.", "112233445566"],
+    ]) {
+      const ents = scan(text).filter((e) => e.label === "BANK_ACCOUNT");
+      assert.equal(ents.length, 1, text);
+      assert.equal(ents[0].text, expected, text);
+      assert.equal(text.slice(ents[0].start, ents[0].end), expected, text);
+    }
+  });
+});
