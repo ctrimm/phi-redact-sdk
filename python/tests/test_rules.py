@@ -229,3 +229,34 @@ class TestRedactor:
 
     def test_version(self):
         assert phi_redact.__version__ == "0.1.0"
+
+
+class TestPhoneBoundaries:
+    """A leading "(" or "+" belongs to the number (issue 2026-10-18)."""
+
+    def test_paren_phone_fully_consumed(self):
+        ents = phi_redact.scan("Reach her at (415) 555-0132.")
+        assert len(ents) == 1
+        assert ents[0]["label"] == "PHONE"
+        assert ents[0]["text"] == "(415) 555-0132"
+
+    def test_country_code_fully_consumed(self):
+        ents = phi_redact.scan("Call +1 415-555-0132.")
+        assert len(ents) == 1
+        assert ents[0]["text"] == "+1 415-555-0132"
+
+    def test_redact_leaves_no_stray_chars(self):
+        r = phi_redact.redact("Call (415) 555-0132 or +1 212-555-0199.")
+        assert r.redacted == "Call [PHONE_1] or [PHONE_2]."
+        assert r.mapping == {
+            "[PHONE_1]": "(415) 555-0132",
+            "[PHONE_2]": "+1 212-555-0199",
+        }
+
+    def test_phone_glued_to_word_not_matched(self):
+        ents = phi_redact.scan("abc415-555-0132")
+        assert not any(e["label"] == "PHONE" for e in ents)
+
+    def test_plain_phone_still_matches(self):
+        ents = phi_redact.scan("Call 415-555-0132.")
+        assert [e["text"] for e in ents] == ["415-555-0132"]

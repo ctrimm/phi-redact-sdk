@@ -97,7 +97,9 @@ const PATTERNS: Pattern[] = [
   },
   {
     label: "PHONE",
-    source: String.raw`\b(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}(?:\s*(?:x|ext\.?)\s*\d{1,6})?\b`,
+    // (?<![\w]) instead of a leading \b: a "(" or "+" directly before the
+    // digits belongs to the number and must be consumed, not left behind.
+    source: String.raw`(?<![\w])(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}(?:\s*(?:x|ext\.?)\s*\d{1,6})?\b`,
     flags: "g",
   },
   {

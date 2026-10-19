@@ -149,3 +149,24 @@ describe("VERSION", () => {
     assert.equal(VERSION, "0.1.0");
   });
 });
+
+describe("phone boundaries", () => {
+  it("consumes a leading paren or plus instead of leaving it behind", () => {
+    const ents = scan("Reach her at (415) 555-0132 or +1 212-555-0199.");
+    assert.deepEqual(
+      ents.map((e) => e.text),
+      ["(415) 555-0132", "+1 212-555-0199"],
+    );
+  });
+  it("leaves no stray characters when redacting", () => {
+    const r = redact("Call (415) 555-0132 or +1 212-555-0199.");
+    assert.equal(r.redacted, "Call [PHONE_1] or [PHONE_2].");
+    assert.deepEqual(r.mapping, {
+      "[PHONE_1]": "(415) 555-0132",
+      "[PHONE_2]": "+1 212-555-0199",
+    });
+  });
+  it("does not match a phone glued to a word", () => {
+    assert.ok(!scan("abc415-555-0132").some((e) => e.label === "PHONE"));
+  });
+});

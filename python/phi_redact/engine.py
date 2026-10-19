@@ -27,7 +27,24 @@ DEFAULT_MAX_LEN = 384          # tokens per ONNX chunk (incl. specials)
 DEFAULT_THRESHOLD = 0.5        # min mean-token confidence for neural spans
 OVERLAP_CHARS = 96             # char overlap when a text is split for chunking
 
-BOS, EOS = 0, 2                # <s>, </s> ids in this project's BPE vocab
+BOS, EOS = 0, 2  # fallback for BPE vocabs without [CLS]/[SEP]
+# (the project's legacy smoke vocab: <s>=0, </s>=2)
+
+
+def _special_ids(tok) -> tuple[int, int]:
+    """Start/end marker ids for this tokenizer's vocabulary.
+
+    BERT-style WordPiece vocabs mark sequences with [CLS]/[SEP] (101/102
+    in the v7 model); the legacy BPE smoke vocab uses <s>/</s> (0/2).
+    Hardcoding either pair silently feeds the wrong markers to the other
+    model family and depresses neural scores, so read them from the
+    tokenizer and fall back to BOS/EOS only when [CLS]/[SEP] are absent.
+    """
+    cls_id = tok.token_to_id("[CLS]")
+    sep_id = tok.token_to_id("[SEP]")
+    if cls_id is not None and sep_id is not None:
+        return cls_id, sep_id
+    return BOS, EOS
 
 
 @dataclass
@@ -69,6 +86,10 @@ class OnnxEngine:
         self.max_len = max_len
         self.threshold = threshold
         self.tok = Tokenizer.from_file(tokenizer_path)
+        # Marker ids come from the tokenizer's own vocabulary: v7's
+        # WordPiece vocab resolves [CLS]/[SEP] (101/102); the legacy BPE
+        # smoke vocab falls back to <s>/</s> (0/2).
+        self.bos_id, self.eos_id = _special_ids(self.tok)
         self.sess = ort.InferenceSession(model_path,
                                          providers=["CPUExecutionProvider"])
         # v7-class graphs require token_type_ids; older graphs don't have
@@ -113,7 +134,7 @@ class OnnxEngine:
         entities: list[dict] = []
         for chunk, coff in chunks:
             enc = self.tok.encode(chunk)
-            ids = [BOS] + enc.ids + [EOS]
+            ids = [self.bos_id] + enc.ids + [self.eos_id]
             mask = [1] * len(ids)
             offs = [(0, 0)] + [(s + coff, e + coff) for s, e in enc.offsets] \
                 + [(0, 0)]

@@ -74,7 +74,10 @@ _PATTERNS: list[tuple[str, re.Pattern, callable | None]] = [
     ("SSN", re.compile(r"\b\d{3}-\d{2}-\d{4}\b"), ssn_valid),
     ("IBAN", re.compile(r"\b[A-Z]{2}\d{2}[A-Z0-9]{11,30}\b"), iban_valid),
     ("PHONE", re.compile(
-        r"\b(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}(?:\s*(?:x|ext\.?)\s*\d{1,6})?\b"),
+        # (?<![\w]) instead of a leading \b: a "(" or "+" directly before
+        # the digits belongs to the number ("(415) 555-0132",
+        # "+1 415-555-0132") and must be consumed, not left behind.
+        r"(?<![\w])(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}(?:\s*(?:x|ext\.?)\s*\d{1,6})?\b"),
      None),
     ("EMAIL", re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"), None),
     ("URL", re.compile(r"\bhttps?://[^\s<>\"]+"), None),
