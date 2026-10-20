@@ -144,9 +144,9 @@ describe("redact edge cases", () => {
 });
 
 describe("VERSION", () => {
-  it("is 0.1.0", async () => {
+  it("is 0.2.0", async () => {
     const { VERSION } = await import("../dist/index.js");
-    assert.equal(VERSION, "0.1.0");
+    assert.equal(VERSION, "0.2.0");
   });
 });
 

@@ -39,6 +39,23 @@ result = r.redact(text, threshold=0.5)   # per-call threshold override
 r.scan(text)                             # merged entity list, no redaction
 ```
 
+The current model is **v8** (2026-10-20) — 129 tags / 32 entity types,
+11.3 MB INT8 ONNX:
+
+```bash
+huggingface-cli download CDT5058/phi-redact \
+    phi-redact-v8-int8.onnx tokenizer.json config.json
+```
+
+```python
+r = phi_redact.Redactor(model="phi-redact-v8-int8.onnx",
+                        tokenizer="tokenizer.json")  # labels: config.json beside the model
+```
+
+Golden-set scores (rules + neural): full-value recall 0.958, term
+recall 0.760, precision 0.695. v7 (`phi-redact-v7-int8.onnx`, 121 tags)
+remains in the same repo for precision-sensitive use.
+
 `Redactor(model=...)` loads the ONNX model once and reuses the session.
 `labels` optionally points at a `config.json` carrying `id2label`
 (default: `config.json` next to the model).

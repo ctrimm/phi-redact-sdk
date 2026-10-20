@@ -164,3 +164,33 @@ Drive and verify the copy the notebook pulled (size/checksum). The
 notebook setup cell copies .py files from Drive; a live session keeps
 the stale local copy until that cell re-runs.
 **Date:** 2026-10-20.
+
+## 2026-10-20 — SDK default model v7 -> v8; SDKs bumped to 0.2.0
+
+**Decision:** the SDKs' current/default model is now v8. Python SDK and
+TypeScript SDK bumped 0.1.0 -> 0.2.0 (TS is functionally unchanged —
+rules/remote only; the bump keeps the pair in lockstep and marks the
+model-default change). READMEs now name the v8 files on Hugging Face
+(`phi-redact-v8-int8.onnx` + `tokenizer.json` + `config.json` from
+CDT5058/phi-redact) as the ones to wire into `Redactor`.
+**Evidence:** v8 INT8 ONNX scored through the shipped SDK on the
+164-case golden set: full-value recall 0.958 / term 0.760 / precision
+0.695 / strict F1 0.617 vs v7 INT8 at 0.885 / 0.651 / 0.749 / 0.435
+(same scorer). The PyTorch checkpoint's Colab gate score was 0.955, so
+INT8 quantization costs no recall. Tradeoff recorded, not hidden:
+clean-case FP rate 0.440 (v8) vs 0.120 (v7) — v8 was recall-tuned.
+Threshold 0.8 would give clean-FP 0.320 at 0.932 full-value recall;
+the default stays 0.5, the gate threshold.
+**HF layout:** repo root swapped to v8 (config.json, tags.json,
+model.safetensors, README card); v7 preserved as phi-redact-v7-int8.onnx
+(untouched), model-v7.safetensors, config-v7.json, tags-v7.json. Hub
+weights verified bit-exact against the local checkpoint (logit diff 0).
+Note the label sets differ: v7 = 121 tags, v8 = 129 (adds
+GOVERNMENT_ID and TAX_ID, inserted mid-list — indices after FAX shift,
+so v7 consumers must not pair the v7 ONNX with the root v8 tags/config;
+the versioned v7 files exist for exactly that).
+**Export note:** the Colab T1 export failed (optimum not installed);
+the shipped INT8 was produced locally instead (torch.onnx classic
+exporter + onnxruntime dynamic quantization), validated against PyTorch
+(max logit diff 1.34e-05) and by the golden eval above.
+**Date:** 2026-10-20.
