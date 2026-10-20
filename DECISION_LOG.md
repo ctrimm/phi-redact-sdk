@@ -215,3 +215,20 @@ exporter + onnxruntime dynamic quantization), validated against PyTorch
   been pairing the v7 model with the v8 root tags.json — mislabeling). Website:
   PR ctrimm/personal-site-astro#97 swaps the self-hosted model files + page copy
   (32 types, v7 tables labeled v7, v8 golden note). Cory merges/deploys.
+
+## 2026-10-20 (later) — v8 run on Nemotron-PII: micro F1 0.849 vs v7 0.860
+- Method recovery, not reinvention: the eval set is the exact file the v7 run
+  used — Drive nemotron-eval.jsonl (convert_nemotron.py, test split, first
+  2,000 docs, labels pre-mapped): 2,000 docs / 13,134 gold spans, matching
+  the card fingerprint exactly. All docs fit the 256-token window.
+- Harness validated before trusting it: train/evaluate.py score_model
+  (argmax, BIOES decode, strict char-span) run on the preserved v7 weights
+  reproduced every published v7 per-entity F1 to the third decimal and
+  micro F1 0.860. Only then was v8 run through the identical code path.
+- Result (model-only): v8 micro P 0.867 / R 0.832 / F1 0.849 vs v7 0.877 /
+  0.843 / 0.860. A wash on this synthetic distribution (v7's training mix
+  included a large Nemotron train conversion). v8 gains concentrate on
+  the clinical-note distribution (golden 0.885 -> 0.958). Per entity: SSN
+  0.933 vs 0.908, AGE/DEVICE/HEALTHPLAN up; EMPLOYER/LICENSE/CITY/DATE down.
+- Filed: HF model card v8 section; website PR #97 amended (page note + PR
+  body); raw results at phi-redact work/nemotron/results_{v7,v8}.json.
