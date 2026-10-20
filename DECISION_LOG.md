@@ -194,3 +194,24 @@ the shipped INT8 was produced locally instead (torch.onnx classic
 exporter + onnxruntime dynamic quantization), validated against PyTorch
 (max logit diff 1.34e-05) and by the golden eval above.
 **Date:** 2026-10-20.
+
+## 2026-10-20 (later) — v8 artifact parity with v7 + demos updated
+- Decision: give v8 the full v7 artifact set on HF and move both demos to v8.
+- Evidence: HF now carries phi-redact-v8.onnx (fp32), phi-redact-v8-fp32.mlpackage
+  (fp16, spec v9, weight.bin 22,149,378 B vs v7 22,145,266), phi-redact-v8.mlpackage
+  (4-bit kmeans palettization, per-grouped-channel group_size=2, weight.bin 6,347,778 B
+  vs v7 6,250,098), phi-redact-v8-fp32.tflite (44,482,960 B vs v7 44,472,464).
+  Contracts were read from the v7 files first (Core ML: int32 inputs [1,256], float16
+  logits; TFLite: serving_default int64 inputs [1,256], float32 out) and matched.
+- Verification split: TFLite was executed in the LiteRT interpreter on Linux —
+  max logit diff vs the FP32 ONNX 1.43e-05, argmax agreement 1.000. Core ML
+  packages are spec-validated only (inputs/outputs/dtypes/shapes/spec version);
+  Core ML cannot execute off macOS, so first run on a Mac remains the real gate.
+- Conversion notes: coremltools 9.0 torch.export path needs transformers 4.57.x
+  (5.x masking emits new_ones the EXIR frontend rejects); litert-torch needs
+  enable_x64=True or inputs silently become int32; ai_edge_tensorflow's 268 MB
+  wheel only downloads reliably via curl -C - resume (pip died at 228 MB 6x).
+- Demos: HF Space CDT5058/phi-redact-demo now defaults to the v8 ONNX (it had
+  been pairing the v7 model with the v8 root tags.json — mislabeling). Website:
+  PR ctrimm/personal-site-astro#97 swaps the self-hosted model files + page copy
+  (32 types, v7 tables labeled v7, v8 golden note). Cory merges/deploys.
