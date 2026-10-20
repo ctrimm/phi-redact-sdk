@@ -139,3 +139,28 @@ string-matching).
 **Evidence:** converter verified on 200 rows (770 entities, 0 bad spans,
 exact offsets asserted).
 **Date:** 2026-10-19.
+
+## 2026-10-20 — v8 golden gate: 0.955 measured, mid-90s target hit; first S1 run was scored against stale Drive rules
+
+**Decision:** v8 (student distilled from the distilbert teacher, rules +
+merge as in prod) is accepted as passing the golden gate: full-value
+recall 191/200 = 0.955, term recall 153/200 = 0.765 on the 164-case
+golden set. Up from rules+v7 at 0.885 / 0.651. Per-type full: DL 6/6,
+PHONE 19/19, ROUTING 4/4, GOV_ID 4/6, NAME 46/49, ADDRESS 35/36,
+SSN 27/28. Remaining 9 full misses: GOV_ID x2 (the dashed/segmented
+formats 1EG4-TE5-MK73 and HB-2024-88173 — known red-team targets),
+NAME x3, ADDRESS x1, SSN x1, IP x1, URL x1.
+**Evidence:** Colab S1 re-run 2026-10-20 after the rules sync (below).
+The first S1 run (0.890 / 0.705) was measured against a stale Drive
+rules.py (last modified 2026-09-22 — predating the Oct 18 phone
+leading-(/+ fix, the Oct 19 DL/GOV_ID/BANK_ACCOUNT patterns, and still
+carrying the Fed-district prefix gate in its ABA validator, which all
+4 golden routing numbers fail). Diagnosis verified by downloading the
+Drive file and diffing, and by the re-run landing exactly on the
+derived corrected bound (191 full / 153 term, every per-type delta
+matching prediction).
+**Lesson:** before any Colab eval run, sync the canonical rules.py to
+Drive and verify the copy the notebook pulled (size/checksum). The
+notebook setup cell copies .py files from Drive; a live session keeps
+the stale local copy until that cell re-runs.
+**Date:** 2026-10-20.
