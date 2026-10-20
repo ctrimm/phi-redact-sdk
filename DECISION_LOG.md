@@ -232,3 +232,10 @@ exporter + onnxruntime dynamic quantization), validated against PyTorch
   0.933 vs 0.908, AGE/DEVICE/HEALTHPLAN up; EMPLOYER/LICENSE/CITY/DATE down.
 - Filed: HF model card v8 section; website PR #97 amended (page note + PR
   body); raw results at phi-redact work/nemotron/results_{v7,v8}.json.
+
+## 2026-10-20 — v9 training plan: buy precision back with negative training (data-only changes)
+- Decision: v9 = v8 recipe unchanged (distilbert teacher 10 ep, bert-mini student 60 ep, alpha 0.7), data changes only, so deltas are attributable. Notebook phi_redact_colab9.ipynb (Drive, 25 cells); Cory runs it.
+- Evidence for the changes (v8 measured 2026-10-20): golden precision 0.749 -> 0.695 and clean-case FP 0.120 -> 0.440 vs v7, FPs confident (threshold 0.9 barely helps); Nemotron-PII F1 0.860 -> 0.849; two segmented GOV_ID golden cases still missed.
+- Changes: (1) hard negatives mined with checkpoint-student-v8 over gold-empty, rules-filtered training docs (mine_negatives_v9.py; caps 10k firing + 10k silent); (2) gen_synth_v9.py: segmented/dashed GOV_ID ~55%+ of GOV_ID samples (fresh values, shapes only — golden stays sealed) + 15% sparse low-density notes; (3) Gravitee cap 25k -> 15k; (4) Nemotron becomes a scored gate (S3).
+- Pre-registered gates: golden recall >= 0.950 AND precision >= 0.720 AND clean-FP <= 0.250; Nemotron micro F1 >= 0.849 (stretch 0.860); red-team >= v8 baseline (S0 measures it; none existed). Export via export_onnx_local.py (no optimum — v8's T1 failure); benchmarks via eval_checkpoint.py (AutoModel — evaluate.py CLI still hardcodes Roberta).
+- Catch during prep: multiconer-train.jsonl was listed in v8's Q3 sources but never existed on Drive — v8 silently skipped it. v9 drops it from all lists and the notebook's setup cell asserts every required input exists (plus canonical rules.py md5) before training.
