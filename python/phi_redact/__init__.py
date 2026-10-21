@@ -14,7 +14,7 @@ The module-level functions are rules-only (no model needed). For the
 neural layer (names, addresses, free-text PHI), use Redactor::
 
     r = phi_redact.Redactor(model="model.onnx", tokenizer="tokenizer.json")
-    result = r.redact(text, threshold=0.5)
+    result = r.redact(text, threshold=0.6)
 
 Merge policy: rule spans always win overlaps; neural spans that overlap a
 rule span are dropped; placeholders are numbered per label in document

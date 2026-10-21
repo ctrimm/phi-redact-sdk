@@ -24,7 +24,10 @@ from dataclasses import dataclass, field
 from redact import rules
 
 DEFAULT_MAX_LEN = 384          # tokens per ONNX chunk (incl. specials)
-DEFAULT_THRESHOLD = 0.5        # min mean-token confidence for neural spans
+DEFAULT_THRESHOLD = 0.6        # min mean-token confidence for neural spans
+# 0.6 since v9 (2026-10-21): on the golden set it dominates 0.5 —
+# precision 0.746 vs 0.733, strict F1 0.677 vs 0.670, public retention
+# 0.133 vs 0.033, at identical recall and clean-FP rate.
 OVERLAP_CHARS = 96             # char overlap when a text is split for chunking
 
 BOS, EOS = 0, 2  # fallback for BPE vocabs without [CLS]/[SEP]

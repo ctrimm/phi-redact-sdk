@@ -31,16 +31,17 @@ cd phi-redact-sdk/typescript && npm install && npm run build
 
 ## Model
 
-The current default model is **v8** (2026-10-20), published at
+The current default model is **v9** (2026-10-21), published at
 https://huggingface.co/CDT5058/phi-redact — download
-`phi-redact-v8-int8.onnx`, `tokenizer.json`, and `config.json` from the
+`phi-redact-v9-int8.onnx`, `tokenizer.json`, and `config.json` from the
 repo root and pass them to `Redactor` (see `python/README.md`). On the
-164-case golden set (rules + neural, the production configuration) v8
-scores 0.958 full-value recall vs v7's 0.885, at lower precision
-(0.695 vs 0.749; clean-case FP rate 0.440 vs 0.120) — v8 is tuned to
-miss less, at the cost of over-redacting more. v7 remains available in
-the same HF repo under versioned filenames (`phi-redact-v7-int8.onnx`,
-`tags-v7.json`, `config-v7.json`, `model-v7.safetensors`).
+164-case golden set (rules + neural, the production configuration, at
+the SDK's default threshold of 0.6) v9 scores 0.974 full-value recall
+and 0.746 precision, with a clean-case FP rate of 0.200 — it improves
+on v8 on both axes at once (v8: 0.958 recall, 0.695 precision, 0.440
+clean-FP). v8 and v7 remain available in the same HF repo under
+versioned filenames (`phi-redact-v8-int8.onnx`, `tags-v8.json`,
+`config-v8.json`, `model-v8.safetensors`).
 
 ## Links
 

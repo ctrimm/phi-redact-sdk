@@ -224,7 +224,7 @@ class TestRedactor:
                      tokenizer="/nonexistent/tokenizer.json")
 
     def test_defaults(self):
-        assert DEFAULT_THRESHOLD == 0.5
+        assert DEFAULT_THRESHOLD == 0.6
         assert DEFAULT_MAX_LEN == 384
 
     def test_version(self):
