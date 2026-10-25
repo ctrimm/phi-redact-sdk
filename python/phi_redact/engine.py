@@ -34,6 +34,34 @@ BOS, EOS = 0, 2  # fallback for BPE vocabs without [CLS]/[SEP]
 # (the project's legacy smoke vocab: <s>=0, </s>=2)
 
 
+def _load_tokenizer(tokenizer_path: str):
+    """Load a tokenizer with its serialized truncation cap removed.
+
+    The published tokenizer.json carries a training-side truncation
+    setting (max_length 256). This engine does its own chunking at
+    max_len (see _split), so the tokenizer must report true lengths —
+    with the cap in place, encode() silently returns at most 256 ids,
+    _split's length check reads the truncated length, chunking never
+    engages, and everything past the cap is never scanned. The cap is
+    stripped from the serialized config before loading because the
+    tokenizers library's runtime truncation toggles have changed shape
+    across releases (attribute assignment pre-0.22, no_truncation()
+    removed by 0.23); editing the config dict works on all of them.
+    Tokenizers without a truncation block load unchanged.
+    """
+    from tokenizers import Tokenizer
+
+    try:
+        with open(tokenizer_path) as f:
+            cfg = json.load(f)
+    except (OSError, ValueError):
+        return Tokenizer.from_file(tokenizer_path)
+    if isinstance(cfg, dict) and cfg.get("truncation"):
+        cfg.pop("truncation")
+        return Tokenizer.from_str(json.dumps(cfg))
+    return Tokenizer.from_file(tokenizer_path)
+
+
 def _special_ids(tok) -> tuple[int, int]:
     """Start/end marker ids for this tokenizer's vocabulary.
 
@@ -88,7 +116,7 @@ class OnnxEngine:
         self.model_path = model_path
         self.max_len = max_len
         self.threshold = threshold
-        self.tok = Tokenizer.from_file(tokenizer_path)
+        self.tok = _load_tokenizer(tokenizer_path)
         # Marker ids come from the tokenizer's own vocabulary: v7's
         # WordPiece vocab resolves [CLS]/[SEP] (101/102); the legacy BPE
         # smoke vocab falls back to <s>/</s> (0/2).
@@ -126,6 +154,15 @@ class OnnxEngine:
             break
         self._split(text[:cut], off, out)
         back = max(0, cut - OVERLAP_CHARS)
+        if back == 0:
+            # Degenerate geometry: the overlap window covers the whole
+            # left piece, so the right call would re-split the identical
+            # text forever. Unreachable at the default max_len (a chunk
+            # over budget is far longer than OVERLAP_CHARS), but possible
+            # with a small custom max_len. Drop the overlap for this
+            # split — it is a recall nicety at boundaries, not a
+            # correctness requirement.
+            back = cut
         self._split(text[back:], off + back, out)
 
     # -- inference --------------------------------------------------------

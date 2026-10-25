@@ -39,7 +39,7 @@ from .engine import (
     redact as _engine_redact,
 )
 
-__version__ = "0.2.0"
+__version__ = "0.3.1"
 
 __all__ = [
     "DEFAULT_MAX_LEN",
