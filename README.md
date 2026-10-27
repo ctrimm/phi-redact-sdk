@@ -11,6 +11,12 @@ neural layer for names, addresses, and free-text PHI the rules cannot see.
 - [`typescript/`](typescript/) — `phi-redact` 0.5.0 on npm (planned). Pure-TS
   port of the rules layer (zero dependencies, synchronous, Node 18+ and
   browsers) plus a `RemoteRedactor` HTTP client for the neural layer.
+- [`rust/`](rust/) — `phi-redact` 0.6.0 on crates.io (planned). Native port
+  of the full local pipeline (rules, operators, lists, recognizers,
+  thresholds/review, streaming restore) accepting injected neural spans,
+  with real ONNX inference behind the `neural` cargo feature. Byte-for-byte
+  parity with Python is enforced in `e2e/parity/`; measured performance
+  vs the other SDKs is in [`rust/PERF.md`](rust/PERF.md).
 
 Merge policy: rule spans always win overlaps; neural spans overlapping a
 rule span are dropped; placeholders are numbered per label in document
@@ -27,6 +33,9 @@ pip install "git+https://github.com/ctrimm/phi-redact-sdk#subdirectory=python#eg
 # TypeScript
 git clone https://github.com/ctrimm/phi-redact-sdk
 cd phi-redact-sdk/typescript && npm install && npm run build
+
+# Rust
+cd phi-redact-sdk/rust && cargo build --release   # add --features neural for ONNX
 ```
 
 ## Model

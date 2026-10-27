@@ -1,0 +1,33 @@
+[package]
+name = "phi-redact"
+version = "0.6.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "PII/PHI redaction SDK: deterministic rules layer + optional ONNX neural layer, with anonymize operators, allow/deny lists, custom recognizers, and per-label thresholds with a needs-review mode."
+homepage = "https://corytrimm.com/phi-redact"
+repository = "https://github.com/ctrimm/phi-redact-sdk"
+keywords = ["pii", "phi", "redaction", "de-identification", "privacy"]
+categories = ["text-processing"]
+
+[lib]
+name = "phi_redact"
+path = "src/lib.rs"
+
+[features]
+default = []
+# Real ONNX inference (v9 int8 model) via the `ort` crate + HF `tokenizers`.
+# Off by default: the local pipeline mirrors the TypeScript SDK and accepts
+# injected neural spans without it.
+neural = ["dep:ort", "dep:tokenizers", "ort/load-dynamic"]
+
+[dependencies]
+regex = "1"
+sha2 = "0.10"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+indexmap = { version = "2", features = ["serde"] }
+ort = { version = "=2.0.0-rc.10", optional = true }
+tokenizers = { version = "0.21", optional = true, default-features = false, features = ["fancy-regex"] }
+
+[profile.release]
+opt-level = 3
