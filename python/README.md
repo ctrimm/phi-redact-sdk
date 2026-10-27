@@ -26,8 +26,9 @@ SSN, IBAN, phone, email, URL, IP, ZIP, date, MRN):
 - `phi_redact.scan(text)` -> entity dicts (`start`, `end`, `label`,
   `text`, `source`), sorted by start
 - `phi_redact.redact(text, operator=..., salt=..., allowlist=...,
-  denylist=..., deny_label=...)` -> `RedactionResult` (`redacted`,
-  `entities`, `mapping`, `counts`, `engine`, `model`); the keyword
+  denylist=..., deny_label=..., recognizers=..., thresholds=...,
+  review_margin=...)` -> `RedactionResult` (`redacted`, `entities`,
+  `mapping`, `counts`, `engine`, `model`, `review`); the keyword
   options mirror the `Redactor` constructor options below
 - `phi_redact.restore(redacted, mapping)` -> original text
 - `RedactionResult.to_dict()` -> JSON-serializable dict
@@ -72,9 +73,11 @@ Export a checkpoint first:
 
 ## Merge policy
 
-Rule spans always win overlaps (checksum-gated precision). Neural spans
-that overlap a rule span are dropped; neural-neural overlaps keep the
-higher confidence. Placeholders are numbered per label in document order:
+Precedence is rules > recognizers > neural. Rule spans win every
+overlap (checksum-gated precision); recognizer spans beat neural
+spans but yield to rules; neural spans that overlap a kept span are
+dropped, and neural-neural overlaps keep the higher confidence.
+Placeholders are numbered per label in document order:
 `[NAME_PATIENT_1]`, `[PHONE_2]`, ... Keep the mapping for pseudonymized
 round-trips; delete it and the copy is anonymized.
 
@@ -158,6 +161,69 @@ Redactor options (also `redact()` keywords):
   (default `"CUSTOM"`). A deny span wins any overlap with a detected
   span, and deny wins over allow when a term is in both lists.
 
+## Custom recognizers
+
+Site-specific identifier formats the built-in layers do not know —
+employee IDs, internal account numbers, case codes — are a
+`PatternRecognizer` (Redactor option or `redact()` keyword):
+
+```python
+from phi_redact import PatternRecognizer
+
+emp = PatternRecognizer(
+    label="EMPLOYEE_ID",                 # custom labels allowed
+    patterns=[r"EMP\d{6}"],              # one or more regexes
+    score=0.85,                          # base confidence
+    context=["badge", "employee"],       # optional context words
+    context_window=40,                   # chars searched per side
+    context_boost=0.10,                  # score bump on a context hit
+    require_context=False,               # True: no context, no match
+    validator=None,                      # callable, or "luhn"/"ssn"/
+                                         # "iban"/"aba" checksum name
+    group=0,                             # match group used as the span
+)
+r = phi_redact.Redactor(recognizers=[emp])
+```
+
+Recognizer spans carry `source="recognizer"` and a score, and merge
+under a three-tier precedence: **rules > recognizers > neural** (the
+built-in rules are effectively registered first). Among recognizers,
+the first registered wins an overlap. Recognizer matches respect the
+allowlist (a protected value is dropped) and lose overlaps to the
+denylist (deny still wins). They redact under whichever anonymize
+operator is configured, like any other span. Patterns should stick to
+the regex subset shared by Python `re` and JS `RegExp` if the same
+recognizers are used with the TypeScript SDK.
+
+## Per-label thresholds & needs-review mode
+
+Scored spans (neural and recognizer spans) are gated per label:
+
+```python
+r = phi_redact.Redactor(
+    thresholds={"NAME": 0.75, "EMPLOYEE_ID": 0.9},  # label -> gate
+    review_margin=0.15,
+)
+result = r.redact(text)
+result.review   # [{'start': .., 'end': .., 'label': .., 'text': ..,
+                #   'score': .., 'source': ..}, ...]
+```
+
+A label's threshold overrides the global one (`Redactor(threshold=)`,
+default 0.6) for spans of that label. A span scoring at or above its
+threshold redacts; below it, if `review_margin` is set and the score
+is at or above `threshold - review_margin`, the span is **not**
+redacted — it comes back on `result.review` for a human to decide
+(the human-in-the-loop surface Presidio does not have). Anything
+lower is dropped. Review candidates are never in the mapping or the
+counts, and `restore()` ignores them (they were never replaced).
+Batch results carry their own `review` list per result.
+
+Deliberate edge: spans **without** a score — the checksum-gated rules
+layer and denylist injections — are never gated and never reviewed.
+A per-label threshold on `"SSN"` does not stop the SSN rule; thresholds
+govern the probabilistic layers, rules stay deterministic.
+
 ## Presidio-parity use cases
 
 0.4.0 closes the SDK-layer gaps found in the Presidio comparison
@@ -175,6 +241,15 @@ Redactor options (also `redact()` keywords):
 - **Allow/deny lists** — site-specific exceptions and always-redact
   terms without writing custom recognizers.
 
+0.5.0 adds the next two:
+
+- **Custom recognizers** — Presidio's PatternRecognizer, ported:
+  user regexes with base scores, context-word boosting, and
+  checksum/callable validators, under built-in or custom labels.
+- **Per-label thresholds + needs-review** — Presidio-style
+  per-entity score gates, plus a review band that returns
+  borderline spans for human adjudication instead of dropping them.
+
 Explicitly out of scope: image redaction (OCR/DICOM), structured-data
 anonymization, and non-English / international recognizers — Presidio
 remains the right tool for those lanes.
@@ -187,6 +262,6 @@ and makes no HIPAA Expert Determination / Safe Harbor claim.
 ## Tests
 
 ```bash
-python3 -m pytest tests/ -q          # unit + integration (99 tests)
+python3 -m pytest tests/ -q          # unit + integration (140 tests)
 python3 -m pytest e2e/parity -q      # cross-SDK parity vs the TypeScript port
 ```

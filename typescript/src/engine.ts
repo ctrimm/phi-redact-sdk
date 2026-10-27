@@ -10,14 +10,32 @@
  * streaming restore, anonymize operators ("numbered", "label", "mask",
  * "hash", "remove"), and allow/deny lists — same semantics as the
  * Python engine, with shared test vectors pinning the "hash" operator.
+ *
+ * 0.5.0: custom recognizers (regex patterns with base scores,
+ * context-word boosting, optional validators; spans carry source
+ * "recognizer" and merge under rules > recognizers > neural), plus
+ * per-label thresholds with a needs-review mode (reviewMargin):
+ * scored spans that miss their threshold but land within the margin
+ * come back on result.review instead of being silently dropped. Spans
+ * without a score (rules, denylist) are never gated.
  */
 
-import { restoreText, scan as rulesScan } from "./rules.js";
+import {
+  abaRoutingOk,
+  ibanValid,
+  luhnOk,
+  restoreText,
+  scan as rulesScan,
+  ssnValid,
+} from "./rules.js";
 import type {
   AnonymizeOperator,
   Entity,
+  Recognizer,
   RedactOptions,
   RedactionResult,
+  ReviewCandidate,
+  ValidatorName,
 } from "./types.js";
 
 export const OPERATORS: readonly AnonymizeOperator[] = [
@@ -30,26 +48,42 @@ export const OPERATORS: readonly AnonymizeOperator[] = [
 
 export const DEFAULT_DENY_LABEL = "CUSTOM";
 
+/** Global score gate for scored spans without a per-label override.
+    Matches the Python engine's DEFAULT_THRESHOLD (the v9 ship gate). */
+export const DEFAULT_THRESHOLD = 0.6;
+
 const overlaps = (a: Entity, b: Entity): boolean =>
   !(a.end <= b.start || a.start >= b.end);
 
 /**
- * Rules win every overlap. Neural-neural overlaps keep the best score.
- * Returns entities sorted by start.
+ * Merge the detection layers. Precedence: rules > recognizers >
+ * neural. Rules win every overlap (checksum-gated precision).
+ * Recognizer spans are deterministic user intent: they win overlaps
+ * against neural spans, but yield to rule spans — the built-in rules
+ * are effectively "registered first". recognizerEnts must arrive in
+ * precedence order (recognizerSpans returns them so); among
+ * themselves the first wins. Neural-neural overlaps keep the best
+ * score. Returns entities sorted by start.
  */
 export function mergeEntities(
   ruleEnts: Entity[],
   neuralEnts: Entity[] = [],
+  recognizerEnts: Entity[] = [],
 ): Entity[] {
+  const base: Entity[] = [...ruleEnts];
+  for (const r of recognizerEnts) {
+    if (base.some((b) => overlaps(r, b))) continue;
+    base.push(r);
+  }
   const kept: Entity[] = [];
   for (const n of [...neuralEnts].sort(
     (a, b) => (b.score ?? 0) - (a.score ?? 0),
   )) {
-    if (ruleEnts.some((r) => overlaps(n, r))) continue;
+    if (base.some((b) => overlaps(n, b))) continue;
     if (kept.some((k) => overlaps(n, k))) continue;
     kept.push(n);
   }
-  return [...ruleEnts, ...kept].sort((a, b) => a.start - b.start);
+  return [...base, ...kept].sort((a, b) => a.start - b.start);
 }
 
 // ---------------------------------------------------------------------------
@@ -291,6 +325,222 @@ export function processEntities(
 }
 
 // ---------------------------------------------------------------------------
+// Custom recognizers (0.5.0, Presidio parity)
+// ---------------------------------------------------------------------------
+
+/** Named checksum validators a recognizer can reference by string. */
+export const NAMED_VALIDATORS: Record<
+  ValidatorName,
+  (value: string) => boolean
+> = {
+  luhn: luhnOk,
+  ssn: ssnValid,
+  iban: ibanValid,
+  aba: abaRoutingOk,
+};
+
+const round4 = (x: number): number => Math.round(x * 10000) / 10000;
+
+function validateRecognizer(rec: Recognizer): void {
+  if (!rec.label) throw new Error("recognizer label must be non-empty");
+  if (!rec.patterns || rec.patterns.length === 0) {
+    throw new Error("recognizer needs at least one pattern");
+  }
+  const score = rec.score ?? 0.85;
+  if (!(score >= 0 && score <= 1)) {
+    throw new Error(`recognizer score ${score} outside [0, 1]`);
+  }
+  if ((rec.contextWindow ?? 40) < 0) {
+    throw new Error("contextWindow must be >= 0");
+  }
+  if ((rec.contextBoost ?? 0.1) < 0) {
+    throw new Error("contextBoost must be >= 0");
+  }
+  if (rec.requireContext && (!rec.context || rec.context.length === 0)) {
+    throw new Error("requireContext=true needs context words");
+  }
+  if (
+    typeof rec.validator === "string" &&
+    !(rec.validator in NAMED_VALIDATORS)
+  ) {
+    throw new Error(
+      `unknown validator ${JSON.stringify(rec.validator)}; expected a ` +
+        `function or one of ${Object.keys(NAMED_VALIDATORS).join(", ")}`,
+    );
+  }
+  if ((rec.group ?? 0) < 0) throw new Error("group must be >= 0");
+}
+
+function resolveValidator(
+  validator: Recognizer["validator"],
+): ((value: string) => boolean) | undefined {
+  if (validator === undefined || validator === null) return undefined;
+  if (typeof validator === "function") return validator;
+  const fn = NAMED_VALIDATORS[validator as ValidatorName];
+  if (!fn) {
+    throw new Error(
+      `unknown validator ${JSON.stringify(validator)}; expected a ` +
+        `function or one of ${Object.keys(NAMED_VALIDATORS).join(", ")}`,
+    );
+  }
+  return fn;
+}
+
+function contextPresent(
+  text: string,
+  s: number,
+  e: number,
+  rec: Recognizer,
+): boolean {
+  const w = rec.contextWindow ?? 40;
+  const lo = Math.max(0, s - w);
+  const hi = Math.min(text.length, e + w);
+  const win = (text.slice(lo, s) + text.slice(e, hi)).toLowerCase();
+  return (rec.context ?? []).some(
+    (word) => word !== "" && win.includes(word.toLowerCase()),
+  );
+}
+
+/**
+ * Run user recognizers over text. Returns scored spans (source
+ * "recognizer") in PRECEDENCE order — recognizer registration order,
+ * then pattern order, then document order — with overlaps among them
+ * already resolved first-wins in that order. mergeEntities relies on
+ * this order; the final entity list is sorted by start there.
+ */
+export function recognizerSpans(
+  text: string,
+  recognizers: Recognizer[] = [],
+): Entity[] {
+  const accepted: Entity[] = [];
+  for (const rec of recognizers) {
+    validateRecognizer(rec);
+    const validate = resolveValidator(rec.validator);
+    const baseScore = rec.score ?? 0.85;
+    const grp = rec.group ?? 0;
+    for (const pattern of rec.patterns) {
+      // Fresh RegExp per scan: /g regexes are stateful (lastIndex).
+      const re = new RegExp(pattern, "g");
+      for (const m of text.matchAll(re)) {
+        const value = m[grp];
+        if (value === undefined || value === "") continue;
+        const start =
+          (m.index ?? 0) + (grp ? m[0].indexOf(value) : 0);
+        const end = start + value.length;
+        if (validate && !validate(value)) continue;
+        let score = baseScore;
+        if (rec.context && rec.context.length > 0) {
+          if (contextPresent(text, start, end, rec)) {
+            score = Math.min(1.0, score + (rec.contextBoost ?? 0.1));
+          } else if (rec.requireContext) {
+            continue;
+          }
+        }
+        const span: Entity = {
+          start,
+          end,
+          label: rec.label,
+          text: value,
+          source: "recognizer",
+          score: round4(score),
+        };
+        if (accepted.some((a) => overlaps(span, a))) continue;
+        accepted.push(span);
+      }
+    }
+  }
+  return accepted;
+}
+
+// ---------------------------------------------------------------------------
+// Score gate: per-label thresholds + needs-review mode (0.5.0)
+// ---------------------------------------------------------------------------
+
+/** The score gate for one label: its per-label override when set,
+    else the global threshold. */
+export function effectiveThreshold(
+  label: string,
+  globalThreshold: number,
+  thresholds?: Record<string, number>,
+): number {
+  if (thresholds && label in thresholds) return thresholds[label];
+  return globalThreshold;
+}
+
+function validateScoreOptions(options: RedactOptions): void {
+  if (options.thresholds) {
+    for (const [label, t] of Object.entries(options.thresholds)) {
+      if (!(t >= 0 && t <= 1)) {
+        throw new Error(
+          `threshold for ${JSON.stringify(label)} is ${t}, outside [0, 1]`,
+        );
+      }
+    }
+  }
+  if (
+    options.reviewMargin !== undefined &&
+    options.reviewMargin !== null &&
+    !(options.reviewMargin >= 0 && options.reviewMargin <= 1)
+  ) {
+    throw new Error(`reviewMargin ${options.reviewMargin} outside [0, 1]`);
+  }
+}
+
+/**
+ * Split merged entities into { kept, review } by score, against the
+ * global gate DEFAULT_THRESHOLD (the local engine's threshold; the
+ * neural layer's own gate lives server-side / in the Python engine).
+ *
+ * Only spans carrying a score are gated — neural spans and recognizer
+ * spans. Spans WITHOUT a score (the checksum-gated rules layer,
+ * denylist injections) are deterministic by construction and always
+ * redact: a per-label threshold on "SSN" does not stop the SSN rule,
+ * and a threshold never turns a rule span into a review candidate.
+ *
+ * A scored span redacts when score >= its effective threshold
+ * (per-label override, else global). Below that, when reviewMargin is
+ * set, a span scoring at or above (threshold - reviewMargin) becomes
+ * a review candidate: NOT redacted, returned for a human to decide.
+ * Anything lower is dropped. With reviewMargin undefined (the
+ * default) the review list is always empty.
+ */
+export function partitionByScore(
+  entities: Entity[],
+  options: RedactOptions = {},
+): { kept: Entity[]; review: ReviewCandidate[] } {
+  validateScoreOptions(options);
+  const kept: Entity[] = [];
+  const review: ReviewCandidate[] = [];
+  const margin = options.reviewMargin;
+  for (const e of entities) {
+    if (e.score === undefined || e.score === null) {
+      kept.push(e);
+      continue;
+    }
+    const eff = effectiveThreshold(e.label, DEFAULT_THRESHOLD,
+                                   options.thresholds);
+    if (e.score >= eff) {
+      kept.push(e);
+    } else if (
+      margin !== undefined &&
+      margin !== null &&
+      e.score >= eff - margin
+    ) {
+      review.push({
+        start: e.start,
+        end: e.end,
+        label: e.label,
+        text: e.text,
+        score: e.score,
+        source: e.source,
+      });
+    }
+  }
+  review.sort((a, b) => a.start - b.start);
+  return { kept, review };
+}
+
+// ---------------------------------------------------------------------------
 // Redact / batch / scrub
 // ---------------------------------------------------------------------------
 
@@ -305,18 +555,24 @@ export function redact(
   neuralEnts: Entity[] = [],
   options: RedactOptions = {},
 ): RedactionResult {
-  const merged = mergeEntities(rulesScan(text), neuralEnts);
-  const entities = processEntities(text, merged, options);
-  const { redacted, mapping } = applyPlaceholders(text, entities, options);
+  const merged = mergeEntities(
+    rulesScan(text),
+    neuralEnts,
+    recognizerSpans(text, options.recognizers ?? []),
+  );
+  const processed = processEntities(text, merged, options);
+  const { kept, review } = partitionByScore(processed, options);
+  const { redacted, mapping } = applyPlaceholders(text, kept, options);
   const counts: Record<string, number> = {};
-  for (const e of entities) counts[e.label] = (counts[e.label] ?? 0) + 1;
+  for (const e of kept) counts[e.label] = (counts[e.label] ?? 0) + 1;
   return {
     redacted,
-    entities,
+    entities: kept,
     mapping,
     counts,
     engine: neuralEnts.length > 0 ? "rules+neural" : "rules",
     model: null,
+    review,
   };
 }
 

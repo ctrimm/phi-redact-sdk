@@ -27,9 +27,9 @@
   "name": "phi-redact",
   "scripts": {
     "build": "tsc",
-    "test": "npm run build && node --test test/redact.test.js test/remote.test.js test/features.test.js"
+    "test": "npm run build && node --test test/redact.test.js test/remote.test.js test/features.test.js test/recognizers.test.js"
   },
   "type": "module",
   "types": "./dist/index.d.ts",
-  "version": "0.4.0"
+  "version": "0.5.0"
 }

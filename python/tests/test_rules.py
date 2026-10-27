@@ -144,7 +144,7 @@ class TestRedact:
         d = json.loads(json.dumps(r.to_dict()))
         assert set(d) == {
             "redacted", "entities", "mapping",
-            "counts", "engine", "model",
+            "counts", "engine", "model", "review",
         }
         assert d["engine"] == "rules"
 
@@ -228,7 +228,7 @@ class TestRedactor:
         assert DEFAULT_MAX_LEN == 384
 
     def test_version(self):
-        assert phi_redact.__version__ == "0.4.0"
+        assert phi_redact.__version__ == "0.5.0"
 
 
 class TestPhoneBoundaries:

@@ -26,16 +26,20 @@ email, URL, IP, ZIP, date, MRN; checksum-gated):
 
 - `scan(text)` -> `Entity[]` (`start`, `end`, `label`, `text`, `source`)
 - `redact(text, neuralEntities?, options?)` -> `RedactionResult`
-  (`redacted`, `entities`, `mapping`, `counts`, `engine`, `model`);
-  `options` carries `operator`, `salt`, `allowlist`, `denylist`,
-  `denyLabel` (see below)
+  (`redacted`, `entities`, `mapping`, `counts`, `engine`, `model`,
+  `review`); `options` carries `operator`, `salt`, `allowlist`,
+  `denylist`, `denyLabel`, `recognizers`, `thresholds`, `reviewMargin`
+  (see below)
 - `redactBatch(texts, options?)` -> one `RedactionResult` per input,
   in order
 - `scrub(text, neuralEntities?, options?)` -> `{ redacted, mapping }`
   for the LLM round-trip; `restore(redacted, mapping)` -> original text
 - `ChunkedRestorer` — streaming restore for chunked LLM output
-- `mergeEntities(ruleEnts, neuralEnts?)` -> merged list; rules win every
-  overlap, neural-neural overlaps keep the higher `score`
+- `mergeEntities(ruleEnts, neuralEnts?, recognizerEnts?)` -> merged
+  list; precedence rules > recognizers > neural
+- `recognizerSpans(text, recognizers)` -> scored spans from custom
+  recognizers; `partitionByScore(entities, options?)` -> the
+  threshold/review split used by `redact`
 - `applyPlaceholders(text, entities, options?)` -> `{ redacted, mapping }`
 - Validators exported individually: `luhnOk`, `ssnValid`, `ibanValid`
 
@@ -136,6 +140,66 @@ stays zero-dependency and browser-safe.)
   (default `"CUSTOM"`). A deny span wins any overlap with a detected
   span, and deny wins over allow when a term is in both lists.
 
+## Custom recognizers
+
+Site-specific identifier formats the built-in layers do not know —
+employee IDs, internal account numbers, case codes — are plain
+recognizer objects in the `recognizers` option:
+
+```ts
+const emp = {
+  label: "EMPLOYEE_ID",              // custom labels allowed
+  patterns: ["EMP\\d{6}"],           // one or more regex sources
+  score: 0.85,                       // base confidence
+  context: ["badge", "employee"],    // optional context words
+  contextWindow: 40,                 // chars searched per side
+  contextBoost: 0.10,                // score bump on a context hit
+  requireContext: false,             // true: no context, no match
+  validator: undefined,              // predicate, or "luhn" / "ssn" /
+                                     // "iban" / "aba" checksum name
+  group: 0,                          // match group used as the span
+};
+redact(text, [], { recognizers: [emp] });
+```
+
+Recognizer spans carry `source: "recognizer"` and a score, and merge
+under a three-tier precedence: **rules > recognizers > neural** (the
+built-in rules are effectively registered first). Among recognizers,
+the first registered wins an overlap. Recognizer matches respect the
+allowlist (a protected value is dropped) and lose overlaps to the
+denylist (deny still wins). They redact under whichever anonymize
+operator is configured, like any other span. Patterns should stick to
+the regex subset shared by JS `RegExp` and Python `re` if the same
+recognizers are used with the Python SDK.
+
+## Per-label thresholds & needs-review mode
+
+Scored spans (neural spans passed to `redact`, and recognizer spans)
+are gated per label via `thresholds`, with an optional review band:
+
+```ts
+const r = redact(text, neuralEntities, {
+  thresholds: { NAME: 0.75, EMPLOYEE_ID: 0.9 },  // label -> gate
+  reviewMargin: 0.15,
+});
+r.review;  // [{ start, end, label, text, score, source }, ...]
+```
+
+A label's threshold overrides the global gate (the SDK default, 0.6,
+matching the Python engine) for spans of that label. A span scoring
+at or above its threshold redacts; below it, if `reviewMargin` is set
+and the score is at or above `threshold - reviewMargin`, the span is
+**not** redacted — it comes back on `result.review` for a human to
+decide (the human-in-the-loop surface Presidio does not have).
+Anything lower is dropped. Review candidates are never in the mapping
+or the counts, and `restore()` ignores them (they were never
+replaced). Batch results carry their own `review` list per result.
+
+Deliberate edge: spans **without** a score — the checksum-gated rules
+layer and denylist injections — are never gated and never reviewed.
+A per-label threshold on `"SSN"` does not stop the SSN rule; thresholds
+govern the probabilistic layers, rules stay deterministic.
+
 ## Presidio-parity use cases
 
 0.4.0 closes the SDK-layer gaps found in the Presidio comparison
@@ -152,6 +216,15 @@ stays zero-dependency and browser-safe.)
 - **Allow/deny lists** — site-specific exceptions and always-redact
   terms without writing custom recognizers.
 
+0.5.0 adds the next two:
+
+- **Custom recognizers** — Presidio's PatternRecognizer, ported:
+  user regexes with base scores, context-word boosting, and
+  checksum/predicate validators, under built-in or custom labels.
+- **Per-label thresholds + needs-review** — Presidio-style
+  per-entity score gates, plus a review band that returns
+  borderline spans for human adjudication instead of dropping them.
+
 Explicitly out of scope: image redaction (OCR/DICOM), structured-data
 anonymization, and non-English / international recognizers — Presidio
 remains the right tool for those lanes. The local engine is rules-only;
@@ -166,5 +239,5 @@ and makes no HIPAA Expert Determination / Safe Harbor claim.
 ## Tests
 
 ```bash
-npm test   # builds, then runs the unit + RemoteRedactor + 0.4.0 feature suites (69 tests)
+npm test   # builds, then runs the unit + RemoteRedactor + feature suites (109 tests)
 ```

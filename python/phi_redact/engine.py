@@ -8,6 +8,11 @@ Two layers, merged into one entity list:
                cannot do: names, addresses, employers, PHI in free prose.
                Optional; falls back to rules-only when no model is given.
 
+Plus user-supplied recognizers (0.5.0, Presidio parity): regex patterns
+with base scores, context-word boosting, and optional validators,
+producing spans with source "recognizer" under built-in or custom
+labels. Precedence: rules > recognizers > neural.
+
 Placeholder policy: numbered per label in forward document order,
 e.g. [NAME_PATIENT_1], [PHONE_2]. The mapping {placeholder: original}
 is returned for pseudonymized round-trips; delete it and the copy is
@@ -23,6 +28,13 @@ operators return an empty one by design.
 Allow/deny lists (0.4.0): allowlisted terms are never redacted;
 denylisted terms are always redacted with a chosen label. Deny wins
 over allow when a term sits in both lists.
+
+Per-label thresholds + needs-review mode (0.5.0): scored spans (neural,
+recognizer) are gated per label — a label's threshold overrides the
+global one. With review_margin set, a scored span that misses its
+threshold but lands within the margin is not redacted and not dropped:
+it is returned on RedactionResult.review for a human to decide. Spans
+without a score (rules, denylist) are deterministic and always redact.
 """
 
 from __future__ import annotations
@@ -31,6 +43,7 @@ import hashlib
 import json
 import os
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from redact import rules
@@ -101,6 +114,10 @@ class RedactionResult:
     counts: dict = field(default_factory=dict)           # label -> n
     engine: str = "rules"
     model: str | None = None
+    # Scored spans held back by the threshold gate for human review
+    # (start,end,label,text,score,source). Never redacted, never in
+    # the mapping, never counted. Empty unless review mode is on.
+    review: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         """JSON-serializable view of the result."""
@@ -111,6 +128,7 @@ class RedactionResult:
             "counts": self.counts,
             "engine": self.engine,
             "model": self.model,
+            "review": self.review,
         }
 
 
@@ -181,9 +199,15 @@ class OnnxEngine:
         self._split(text[back:], off + back, out)
 
     # -- inference --------------------------------------------------------
-    def predict(self, text: str) -> list[dict]:
+    def predict(self, text: str,
+                threshold: float | None = None) -> list[dict]:
+        """Neural spans for text. `threshold` overrides the engine's
+        confidence gate for this call only (the merge layer passes the
+        score floor when per-label thresholds or review mode need to
+        see spans the engine gate would have dropped)."""
         import numpy as np
 
+        gate = self.threshold if threshold is None else threshold
         chunks: list[tuple[str, int]] = []
         self._split(text, 0, chunks)
         entities: list[dict] = []
@@ -204,7 +228,7 @@ class OnnxEngine:
             )[0][0]
             probs = _softmax(logits)
             pred = probs.argmax(axis=-1)
-            entities.extend(self._decode(text, offs, pred, probs))
+            entities.extend(self._decode(text, offs, pred, probs, gate))
         # dedupe identical spans produced by chunk overlap, keep best score
         best: dict[tuple, dict] = {}
         for e in entities:
@@ -213,7 +237,9 @@ class OnnxEngine:
                 best[key] = e
         return sorted(best.values(), key=lambda d: d["start"])
 
-    def _decode(self, text: str, offs, pred, probs) -> list[dict]:
+    def _decode(self, text: str, offs, pred, probs,
+                threshold: float | None = None) -> list[dict]:
+        gate = self.threshold if threshold is None else threshold
         entities: list[dict] = []
         cur: list | None = None  # [label, start, end, confidences]
 
@@ -262,7 +288,7 @@ class OnnxEngine:
                 if prefix == "E":
                     flush()
         flush()
-        return [e for e in entities if e["score"] >= self.threshold]
+        return [e for e in entities if e["score"] >= gate]
 
 
 def _trim(text: str, s: int, e: int) -> tuple[int, int]:
@@ -284,16 +310,31 @@ def _softmax(x):
 # Merge + placeholders
 # ---------------------------------------------------------------------------
 
-def merge_entities(rule_ents: list[dict], neural_ents: list[dict]) -> list[dict]:
-    """Rules win every overlap. Neural-neural overlaps keep the best score."""
+def merge_entities(rule_ents: list[dict], neural_ents: list[dict],
+                   recognizer_ents: list[dict] | None = None) -> list[dict]:
+    """Merge the detection layers. Precedence: rules > recognizers > neural.
+
+    Rules win every overlap (checksum-gated precision). Recognizer
+    spans are deterministic user intent: they win overlaps against
+    neural spans, but yield to rule spans — the built-in rules are
+    effectively "registered first". recognizer_ents must arrive in
+    precedence order (recognizer_spans returns them so); among
+    themselves the first wins. Neural-neural overlaps keep the best
+    score.
+    """
+    base: list[dict] = list(rule_ents)
+    for r in recognizer_ents or []:
+        if any(_overlaps(r, b) for b in base):
+            continue
+        base.append(r)
     kept: list[dict] = []
     for n in sorted(neural_ents, key=lambda d: -d.get("score", 0.0)):
-        if any(_overlaps(n, r) for r in rule_ents):
+        if any(_overlaps(n, b) for b in base):
             continue
         if any(_overlaps(n, k) for k in kept):
             continue
         kept.append(n)
-    return sorted(rule_ents + kept, key=lambda d: d["start"])
+    return sorted(base + kept, key=lambda d: d["start"])
 
 
 def _overlaps(a: dict, b: dict) -> bool:
@@ -452,16 +493,283 @@ def process_entities(text: str, entities: list[dict],
     return entities
 
 
+# ---------------------------------------------------------------------------
+# Custom recognizers (0.5.0, Presidio parity)
+# ---------------------------------------------------------------------------
+
+#: Named checksum validators a recognizer can reference by string.
+NAMED_VALIDATORS: dict[str, Callable[[str], bool]] = {
+    "luhn": rules.luhn_ok,
+    "ssn": rules.ssn_valid,
+    "iban": rules.iban_valid,
+    "aba": rules.aba_routing_ok,
+}
+
+
+@dataclass
+class PatternRecognizer:
+    """A user-defined recognizer (Presidio-style): regex patterns that
+    produce scored spans under a built-in or custom label.
+
+    label:           entity label for matches, e.g. "EMPLOYEE_ID"
+                     (uppercase by convention; new labels are allowed).
+    patterns:        one or more regex source strings. The entity span
+                     is match group `group` (default 0 = whole match).
+    score:           base confidence for a match (default 0.85). Like
+                     every scored span it is gated by the effective
+                     threshold (see partition_by_score).
+    context:         optional context words. If any appears within
+                     `context_window` characters on either side of a
+                     match (the match itself excluded; case-insensitive
+                     substring), the score rises by `context_boost`,
+                     capped at 1.0 — Presidio-style context enhancement.
+    context_window:  characters of surrounding text searched for
+                     context words (default 40 per side).
+    context_boost:   score increase on a context hit (default 0.10).
+    require_context: when True, a match with no context word nearby is
+                     dropped instead of kept at its base score.
+    validator:       optional gate on the matched value: a callable
+                     value -> bool, or a named built-in checksum —
+                     "luhn", "ssn", "iban", "aba" (NAMED_VALIDATORS).
+                     A value that fails the validator is not a match.
+    group:           regex group whose span/text is the entity. Use 1+
+                     with an anchored pattern to exclude a keyword
+                     prefix, like the rules layer's BANK_ACCOUNT.
+    """
+
+    label: str
+    patterns: list[str]
+    score: float = 0.85
+    context: list[str] | None = None
+    context_window: int = 40
+    context_boost: float = 0.10
+    require_context: bool = False
+    validator: str | Callable[[str], bool] | None = None
+    group: int = 0
+
+    def __post_init__(self):
+        if not self.label:
+            raise ValueError("recognizer label must be non-empty")
+        if not self.patterns:
+            raise ValueError("recognizer needs at least one pattern")
+        if not 0.0 <= self.score <= 1.0:
+            raise ValueError(
+                f"recognizer score {self.score} outside [0, 1]")
+        if self.context_window < 0:
+            raise ValueError("context_window must be >= 0")
+        if self.context_boost < 0:
+            raise ValueError("context_boost must be >= 0")
+        if self.require_context and not self.context:
+            raise ValueError("require_context=True needs context words")
+        if isinstance(self.validator, str) \
+                and self.validator not in NAMED_VALIDATORS:
+            raise ValueError(
+                f"unknown validator {self.validator!r}; expected a "
+                f"callable or one of {sorted(NAMED_VALIDATORS)}")
+        if self.validator is not None \
+                and not isinstance(self.validator, str) \
+                and not callable(self.validator):
+            raise ValueError(
+                "validator must be a callable or a known name")
+        if self.group < 0:
+            raise ValueError("group must be >= 0")
+
+
+def _resolve_validator(
+        validator: str | Callable[[str], bool] | None,
+) -> Callable[[str], bool] | None:
+    if validator is None or callable(validator):
+        return validator
+    if isinstance(validator, str) and validator in NAMED_VALIDATORS:
+        return NAMED_VALIDATORS[validator]
+    raise ValueError(
+        f"unknown validator {validator!r}; expected a callable or one "
+        f"of {sorted(NAMED_VALIDATORS)}")
+
+
+def _context_present(text: str, s: int, e: int,
+                     rec: PatternRecognizer) -> bool:
+    lo = max(0, s - rec.context_window)
+    hi = min(len(text), e + rec.context_window)
+    window = (text[lo:s] + text[e:hi]).lower()
+    return any(w.lower() in window for w in rec.context if w)
+
+
+def recognizer_spans(text: str,
+                     recognizers: list[PatternRecognizer]) -> list[dict]:
+    """Run user recognizers over text.
+
+    Returns scored spans (source "recognizer") in PRECEDENCE order —
+    recognizer registration order, then pattern order, then document
+    order — with overlaps among them already resolved first-wins in
+    that order. merge_entities relies on this order; the final entity
+    list is sorted by start there.
+    """
+    accepted: list[dict] = []
+    for rec in recognizers:
+        validate = _resolve_validator(rec.validator)
+        for pattern in rec.patterns:
+            rx = re.compile(pattern)
+            if rec.group > rx.groups:
+                raise ValueError(
+                    f"recognizer {rec.label!r}: group {rec.group} but "
+                    f"pattern {pattern!r} has {rx.groups} group(s)")
+            for m in rx.finditer(text):
+                s, e = m.span(rec.group)
+                value = m.group(rec.group)
+                if value is None or s < 0 or s == e:
+                    continue  # group did not participate / empty match
+                if validate is not None and not validate(value):
+                    continue
+                score = rec.score
+                if rec.context:
+                    if _context_present(text, s, e, rec):
+                        score = min(1.0, score + rec.context_boost)
+                    elif rec.require_context:
+                        continue
+                span = {"start": s, "end": e, "label": rec.label,
+                        "text": value, "source": "recognizer",
+                        "score": round(score, 4)}
+                if any(_overlaps(span, a) for a in accepted):
+                    continue
+                accepted.append(span)
+    return accepted
+
+
+# ---------------------------------------------------------------------------
+# Score gate: per-label thresholds + needs-review mode (0.5.0)
+# ---------------------------------------------------------------------------
+
+def effective_threshold(label: str, global_threshold: float,
+                        thresholds: dict | None) -> float:
+    """The score gate for one label: its per-label override when set,
+    else the global threshold."""
+    if thresholds and label in thresholds:
+        return thresholds[label]
+    return global_threshold
+
+
+def _validate_score_options(thresholds: dict | None,
+                            review_margin: float | None) -> None:
+    if thresholds:
+        for label, t in thresholds.items():
+            if not 0.0 <= t <= 1.0:
+                raise ValueError(
+                    f"threshold for {label!r} is {t}, outside [0, 1]")
+    if review_margin is not None and not 0.0 <= review_margin <= 1.0:
+        raise ValueError(
+            f"review_margin {review_margin} outside [0, 1]")
+
+
+def _score_floor(global_threshold: float, thresholds: dict | None,
+                 review_margin: float | None) -> float:
+    """Lowest score a span can survive with. Detectors are asked for
+    spans down to this floor so the partition — not the detector —
+    decides what is redacted, reviewed, or dropped."""
+    floor = global_threshold
+    if thresholds:
+        floor = min(floor, min(thresholds.values()))
+    if review_margin is not None:
+        floor -= review_margin
+    return max(0.0, floor)
+
+
+def partition_by_score(entities: list[dict], global_threshold: float,
+                       thresholds: dict | None = None,
+                       review_margin: float | None = None,
+                       ) -> tuple[list[dict], list[dict]]:
+    """Split merged entities into (redact, review) by score.
+
+    Only spans carrying a score are gated — neural spans and
+    recognizer spans. Spans WITHOUT a score (the checksum-gated rules
+    layer, denylist injections) are deterministic by construction and
+    always redact: a per-label threshold on "SSN" does not stop the
+    SSN rule, and a threshold never turns a rule span into a review
+    candidate.
+
+    A scored span redacts when score >= its effective threshold
+    (per-label override, else the global threshold). Below that, when
+    review_margin is set, a span scoring at or above
+    (threshold - review_margin) becomes a review candidate: NOT
+    redacted, returned for a human to decide. Anything lower is
+    dropped. With review_margin=None (the default) the review list is
+    always empty and the gate is a plain threshold filter.
+    """
+    kept: list[dict] = []
+    review: list[dict] = []
+    for e in entities:
+        score = e.get("score")
+        if score is None:
+            kept.append(e)
+            continue
+        eff = effective_threshold(e["label"], global_threshold, thresholds)
+        if score >= eff:
+            kept.append(e)
+        elif review_margin is not None and score >= eff - review_margin:
+            review.append({k: e[k] for k in
+                           ("start", "end", "label", "text", "score",
+                            "source")})
+    review.sort(key=lambda d: d["start"])
+    return kept, review
+
+
+def gather_entities(text: str, neural: OnnxEngine | None = None, *,
+                    recognizers: list[PatternRecognizer] | None = None,
+                    allowlist: list[str] | None = None,
+                    denylist: list[str] | None = None,
+                    deny_label: str = DEFAULT_DENY_LABEL,
+                    thresholds: dict | None = None,
+                    review_margin: float | None = None,
+                    global_threshold: float | None = None,
+                    ) -> tuple[list[dict], list[dict]]:
+    """Full detection pipeline, shared by redact() and Redactor.scan().
+
+    Rules scan + recognizer scan + neural predict (asked for spans down
+    to the score floor, so per-label thresholds and the review band see
+    spans the engine's own gate would have dropped), merged
+    rules > recognizers > neural, allow/deny applied, then the score
+    gate. Returns (entities_to_redact, review_candidates).
+
+    The global threshold defaults to the neural engine's threshold when
+    an engine is attached, else DEFAULT_THRESHOLD. Duck-typed engines
+    (anything with a predict(text) method that is not an OnnxEngine)
+    keep their own internal gate; their spans are still partitioned by
+    score here.
+    """
+    _validate_score_options(thresholds, review_margin)
+    if global_threshold is not None:
+        g = global_threshold
+    elif neural is not None and getattr(neural, "threshold", None) is not None:
+        g = neural.threshold
+    else:
+        g = DEFAULT_THRESHOLD
+    neural_ents: list[dict] = []
+    if neural is not None:
+        floor = _score_floor(g, thresholds, review_margin)
+        if isinstance(neural, OnnxEngine):
+            neural_ents = neural.predict(text, threshold=floor)
+        else:
+            neural_ents = neural.predict(text)
+    rec_ents = recognizer_spans(text, recognizers) if recognizers else []
+    merged = merge_entities(rules.scan(text), neural_ents, rec_ents)
+    processed = process_entities(text, merged, allowlist, denylist,
+                                 deny_label)
+    return partition_by_score(processed, g, thresholds, review_margin)
+
+
 def redact(text: str, neural: OnnxEngine | None = None, *,
            operator: str = "numbered", salt: str = "",
            allowlist: list[str] | None = None,
            denylist: list[str] | None = None,
-           deny_label: str = DEFAULT_DENY_LABEL) -> RedactionResult:
-    rule_ents = rules.scan(text)
-    neural_ents = neural.predict(text) if neural is not None else []
-    entities = merge_entities(rule_ents, neural_ents)
-    entities = process_entities(text, entities, allowlist, denylist,
-                                deny_label)
+           deny_label: str = DEFAULT_DENY_LABEL,
+           recognizers: list[PatternRecognizer] | None = None,
+           thresholds: dict | None = None,
+           review_margin: float | None = None,
+           global_threshold: float | None = None) -> RedactionResult:
+    entities, review = gather_entities(
+        text, neural, recognizers=recognizers, allowlist=allowlist,
+        denylist=denylist, deny_label=deny_label, thresholds=thresholds,
+        review_margin=review_margin, global_threshold=global_threshold)
     redacted, mapping = apply_placeholders(text, entities,
                                            operator=operator, salt=salt)
     counts: dict[str, int] = {}
@@ -472,6 +780,7 @@ def redact(text: str, neural: OnnxEngine | None = None, *,
         counts=counts,
         engine="rules+onnx" if neural is not None else "rules",
         model=getattr(neural, "model_path", None),
+        review=review,
     )
 
 

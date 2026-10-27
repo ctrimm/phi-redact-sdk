@@ -70,8 +70,9 @@ def test_parity():
 
 
 # ---------------------------------------------------------------------------
-# 0.4.0 feature parity: operators, allow/deny lists, batch.
-# Config names/semantics must stay in lockstep with run_ts_features.mjs.
+# Feature parity (0.4.0 operators/lists/batch; 0.5.0 recognizers,
+# thresholds, review). Config names/semantics must stay in lockstep
+# with run_ts_features.mjs.
 # ---------------------------------------------------------------------------
 
 FEATURE_CONFIGS = {
@@ -85,6 +86,40 @@ FEATURE_CONFIGS = {
     "denylist_label": {"denylist": ["Santos"], "deny_label": "NAME_PATIENT"},
     "allow_and_deny": {"allowlist": ["415-555-0132"],
                        "denylist": ["Maria"]},
+    # 0.5.0: custom recognizers, per-label thresholds, review mode.
+    "recognizer_basic": {"recognizers": [
+        phi_redact.PatternRecognizer(
+            label="EMPLOYEE_ID", patterns=[r"EMP\d{6}"], score=0.9)]},
+    "recognizer_context": {"recognizers": [
+        phi_redact.PatternRecognizer(
+            label="REF_CODE", patterns=[r"[A-Z]{2}-\d{4}"], score=0.5,
+            context=["ref"], context_boost=0.45)]},
+    "recognizer_require_context": {"recognizers": [
+        phi_redact.PatternRecognizer(
+            label="REF_CODE", patterns=[r"[A-Z]{2}-\d{4}"], score=0.9,
+            context=["ref"], require_context=True)]},
+    "recognizer_validator": {"recognizers": [
+        phi_redact.PatternRecognizer(
+            label="MEMBER_ID", patterns=[r"\b\d{9}\b"], score=0.9,
+            validator="aba")]},
+    "thresholds_lower": {
+        "recognizers": [
+            phi_redact.PatternRecognizer(
+                label="REF_CODE", patterns=[r"[A-Z]{2}-\d{4}"],
+                score=0.5)],
+        "thresholds": {"REF_CODE": 0.4}},
+    "thresholds_raise_review": {
+        "recognizers": [
+            phi_redact.PatternRecognizer(
+                label="REF_CODE", patterns=[r"[A-Z]{2}-\d{4}"],
+                score=0.8)],
+        "thresholds": {"REF_CODE": 0.9}, "review_margin": 0.2},
+    "review_margin_global": {
+        "recognizers": [
+            phi_redact.PatternRecognizer(
+                label="REF_CODE", patterns=[r"[A-Z]{2}-\d{4}"],
+                score=0.55)],
+        "review_margin": 0.1},
 }
 
 
@@ -115,11 +150,18 @@ def _shape(result):
         "redacted": result.redacted,
         "entities": [
             {"start": e["start"], "end": e["end"], "label": e["label"],
-             "source": e["source"], "placeholder": e.get("placeholder")}
+             "source": e["source"], "placeholder": e.get("placeholder"),
+             "score": e.get("score")}
             for e in result.entities
         ],
         "mapping": result.mapping,
         "counts": result.counts,
+        "review": [
+            {"start": c["start"], "end": c["end"], "label": c["label"],
+             "text": c["text"], "score": c["score"],
+             "source": c["source"]}
+            for c in result.review
+        ],
     }
 
 
@@ -127,12 +169,20 @@ def test_feature_parity():
     notes = _notes()
     ts_out = _ts_feature_results()
     assert [c["name"] for c in ts_out] == \
-        list(FEATURE_CONFIGS) + ["batch_hash"]
+        list(FEATURE_CONFIGS) + ["batch_hash", "batch_recognizer_review"]
     for config in ts_out:
         assert len(config["results"]) == len(notes)
         if config["name"] == "batch_hash":
             batch = phi_redact.Redactor(
                 operator="hash", salt="parity-salt").redact_batch(notes)
+            py_results = [_shape(r) for r in batch]
+        elif config["name"] == "batch_recognizer_review":
+            batch = phi_redact.Redactor(
+                recognizers=[phi_redact.PatternRecognizer(
+                    label="REF_CODE", patterns=[r"[A-Z]{2}-\d{4}"],
+                    score=0.8)],
+                thresholds={"REF_CODE": 0.9},
+                review_margin=0.2).redact_batch(notes)
             py_results = [_shape(r) for r in batch]
         else:
             opts = FEATURE_CONFIGS[config["name"]]

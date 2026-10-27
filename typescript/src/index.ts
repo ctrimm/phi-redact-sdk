@@ -22,8 +22,11 @@ export type {
   AnonymizeOperator,
   Entity,
   EntitySource,
+  Recognizer,
   RedactOptions,
   RedactionResult,
+  ReviewCandidate,
+  ValidatorName,
 } from "./types.js";
 export {
   abaRoutingOk,
@@ -37,15 +40,20 @@ export {
 export {
   ChunkedRestorer,
   DEFAULT_DENY_LABEL,
+  DEFAULT_THRESHOLD,
+  NAMED_VALIDATORS,
   OPERATORS,
   applyAllowlist,
   applyPlaceholders,
   denylistSpans,
+  effectiveThreshold,
   hashToken,
   injectDenylist,
   maskValue,
   mergeEntities,
+  partitionByScore,
   processEntities,
+  recognizerSpans,
   redact,
   redactBatch,
   restore,
@@ -56,4 +64,4 @@ export {
 export { RemoteRedactor } from "./remote.js";
 export type { RemoteOptions } from "./remote.js";
 
-export const VERSION = "0.4.0";
+export const VERSION = "0.5.0";
