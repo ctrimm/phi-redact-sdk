@@ -185,9 +185,16 @@ def redact_text(text: str, entities: list[dict] | None = None) -> tuple[str, dic
 
 
 def restore_text(redacted: str, mapping: dict[str, str]) -> str:
-    """Put real values back into a redacted text (LLM round-trip)."""
+    """Put real values back into a redacted text (LLM round-trip).
+
+    Replacements run longest-placeholder-first: defensive ordering so
+    a mapping value that itself contains placeholder-shaped text can
+    never be re-matched by a shorter key later in the pass. (The
+    closing "]" already disambiguates keys like "[PHONE_1]" /
+    "[PHONE_12]" from each other.)
+    """
     out = redacted
-    for ph, value in mapping.items():
+    for ph, value in sorted(mapping.items(), key=lambda kv: -len(kv[0])):
         out = out.replace(ph, value)
     return out
 

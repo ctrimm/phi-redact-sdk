@@ -246,13 +246,22 @@ export function redactText(
   return { redacted: out, mapping };
 }
 
-/** Put real values back into a redacted text (LLM round-trip). */
+/** Put real values back into a redacted text (LLM round-trip).
+ *
+ * Replacements run longest-placeholder-first: defensive ordering so a
+ * mapping value that itself contains placeholder-shaped text can never
+ * be re-matched by a shorter key later in the pass. (The closing "]"
+ * already disambiguates keys like "[PHONE_1]" / "[PHONE_12]".)
+ */
 export function restoreText(
   redacted: string,
   mapping: Record<string, string>,
 ): string {
   let out = redacted;
-  for (const [ph, value] of Object.entries(mapping)) {
+  const entries = Object.entries(mapping).sort(
+    (a, b) => b[0].length - a[0].length,
+  );
+  for (const [ph, value] of entries) {
     out = out.split(ph).join(value);
   }
   return out;

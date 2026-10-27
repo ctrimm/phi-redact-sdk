@@ -5,10 +5,10 @@ Deterministic, checksum-gated rules layer for structured identifiers (cards,
 SSN, IBAN, phone, email, URL, IP, ZIP, dates, MRN), plus an optional ONNX
 neural layer for names, addresses, and free-text PHI the rules cannot see.
 
-- [`python/`](python/) — `phi-redact` 0.2.0 on PyPI (planned). Module-level
+- [`python/`](python/) — `phi-redact` 0.4.0 on PyPI (planned). Module-level
   `redact()` / `scan()` / `restore()` (rules-only, zero dependencies) plus a
   `Redactor` class that loads an ONNX model for the neural layer.
-- [`typescript/`](typescript/) — `phi-redact` 0.2.0 on npm (planned). Pure-TS
+- [`typescript/`](typescript/) — `phi-redact` 0.4.0 on npm (planned). Pure-TS
   port of the rules layer (zero dependencies, synchronous, Node 18+ and
   browsers) plus a `RemoteRedactor` HTTP client for the neural layer.
 

@@ -12,10 +12,22 @@ Placeholder policy: numbered per label in forward document order,
 e.g. [NAME_PATIENT_1], [PHONE_2]. The mapping {placeholder: original}
 is returned for pseudonymized round-trips; delete it and the copy is
 anonymized. restore_text() in redact/rules.py reverses it.
+
+Anonymize operators (0.4.0, Presidio parity): the placeholder style is
+an engine option — "numbered" (default, reversible via the mapping),
+"label" (<PHONE>, Presidio-style, irreversible), "mask" (partial
+reveal), "hash" (salted pseudonym token, join-preserving), "remove"
+(delete the span). Only "numbered" returns a mapping; the other
+operators return an empty one by design.
+
+Allow/deny lists (0.4.0): allowlisted terms are never redacted;
+denylisted terms are always redacted with a chosen label. Deny wins
+over allow when a term sits in both lists.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -29,6 +41,9 @@ DEFAULT_THRESHOLD = 0.6        # min mean-token confidence for neural spans
 # precision 0.746 vs 0.733, strict F1 0.677 vs 0.670, public retention
 # 0.133 vs 0.033, at identical recall and clean-FP rate.
 OVERLAP_CHARS = 96             # char overlap when a text is split for chunking
+
+OPERATORS = ("numbered", "label", "mask", "hash", "remove")
+DEFAULT_DENY_LABEL = "CUSTOM"  # label given to denylist-injected spans
 
 BOS, EOS = 0, 2  # fallback for BPE vocabs without [CLS]/[SEP]
 # (the project's legacy smoke vocab: <s>=0, </s>=2)
@@ -285,35 +300,170 @@ def _overlaps(a: dict, b: dict) -> bool:
     return not (a["end"] <= b["start"] or a["start"] >= b["end"])
 
 
-def apply_placeholders(text: str, entities: list[dict]):
-    """Replace back-to-front, then renumber per label in document order."""
-    mapping: dict[str, str] = {}
-    out = text
-    tmp: dict[int, str] = {}  # entity index -> temp placeholder
-    for i, e in enumerate(sorted(entities, key=lambda d: d["start"],
-                                 reverse=True)):
-        ph = f"[\x00{i}]"
-        tmp[id(e)] = ph
-        mapping[ph] = e["text"]
-        out = out[:e["start"]] + ph + out[e["end"]:]
-    # renumber forward per label
+def apply_placeholders(text: str, entities: list[dict],
+                       operator: str = "numbered", salt: str = ""):
+    """Render entities into text under the chosen anonymize operator.
+
+    Replacements are computed in forward document order (so the
+    "numbered" operator numbers per label in reading order), then
+    spliced back-to-front so offsets stay valid. Returns
+    (redacted_text, mapping); the mapping is populated only for
+    "numbered" — the other operators are irreversible by design.
+    """
+    if operator not in OPERATORS:
+        raise ValueError(
+            f"unknown operator {operator!r}; expected one of {OPERATORS}")
     counters: dict[str, int] = {}
-    final: dict[str, str] = {}
-    ordered = sorted(entities, key=lambda d: d["start"])
-    for e in ordered:
+    mapping: dict[str, str] = {}
+    replacements: dict[int, str] = {}  # id(entity) -> rendered replacement
+    for e in sorted(entities, key=lambda d: d["start"]):
         counters[e["label"]] = counters.get(e["label"], 0) + 1
-        new_ph = f"[{e['label']}_{counters[e['label']]}]"
-        e["placeholder"] = new_ph
-        final[new_ph] = mapping[tmp[id(e)]]
-        out = out.replace(tmp[id(e)], new_ph)
-    return out, final
+        rep = _replacement(e, counters[e["label"]], operator, salt)
+        e["placeholder"] = rep
+        replacements[id(e)] = rep
+        if operator == "numbered":
+            mapping[rep] = e["text"]
+    out = text
+    for e in sorted(entities, key=lambda d: d["start"], reverse=True):
+        out = out[:e["start"]] + replacements[id(e)] + out[e["end"]:]
+    return out, mapping
 
 
-def redact(text: str, neural: OnnxEngine | None = None) -> RedactionResult:
+def _replacement(e: dict, n: int, operator: str, salt: str) -> str:
+    label = e["label"]
+    if operator == "numbered":
+        return f"[{label}_{n}]"
+    if operator == "label":
+        return f"<{label}>"
+    if operator == "hash":
+        return hash_token(label, e["text"], salt)
+    if operator == "mask":
+        return mask_value(label, e["text"])
+    return ""  # remove
+
+
+def hash_token(label: str, value: str, salt: str = "") -> str:
+    """Consistent pseudonym token for the "hash" operator.
+
+    [LABEL_<8 hex>] from SHA-256(salt \\x00 label \\x00 value). The same
+    value under the same label and salt yields the same token in every
+    document, so pseudonymized datasets still join. The TypeScript SDK
+    uses the identical construction (shared test vectors pin it).
+
+    The salt defaults to "" but should be a secret in practice: SSNs and
+    other low-entropy values are dictionary-attackable from an unsalted
+    truncated hash.
+    """
+    digest = hashlib.sha256(
+        f"{salt}\x00{label}\x00{value}".encode("utf-8")).hexdigest()[:8]
+    return f"[{label}_{digest}]"
+
+
+# Labels whose values are structured IDs: masking keeps the last 4
+# characters (the part support workflows quote) when the value is long
+# enough for that to be safe.
+_MASK_KEEP_LAST = {
+    "SSN", "CREDITCARD", "PHONE", "TAX_ID", "ROUTING_NUMBER",
+    "BANK_ACCOUNT", "ACCOUNT", "IBAN", "PASSPORT", "DRIVERS_LICENSE",
+    "LICENSE", "GOVERNMENT_ID", "MRN",
+}
+
+
+def mask_value(label: str, value: str) -> str:
+    """Masked rendering for the "mask" operator.
+
+    Structured IDs (see _MASK_KEEP_LAST) of length >= 8 keep their last
+    4 characters; preceding alphanumeric characters become "*" and
+    separators are preserved ("234-56-7890" -> "***-**-7890"). Every
+    other value is masked to its own length in asterisks, so a masked
+    name leaks nothing but its length.
+    """
+    if label in _MASK_KEEP_LAST and len(value) >= 8:
+        head, tail = value[:-4], value[-4:]
+        return "".join(
+            "*" if (c.isascii() and c.isalnum()) else c for c in head) + tail
+    return "*" * len(value)
+
+
+# ---------------------------------------------------------------------------
+# Allow / deny lists
+# ---------------------------------------------------------------------------
+
+def apply_allowlist(entities: list[dict],
+                    allowlist: list[str] | None) -> list[dict]:
+    """Drop spans whose text matches an allowlist term (case-insensitive,
+    exact string — a term protects exactly the value it names)."""
+    if not allowlist:
+        return entities
+    allowed = {t.casefold() for t in allowlist}
+    return [e for e in entities if e["text"].casefold() not in allowed]
+
+
+def denylist_spans(text: str, denylist: list[str],
+                   label: str = DEFAULT_DENY_LABEL) -> list[dict]:
+    """Exact-match spans for denylist terms: case-insensitive,
+    word-boundary aware (a term never matches inside a larger word)."""
+    spans: list[dict] = []
+    for term in denylist:
+        if not term:
+            continue
+        rx = re.compile(r"(?<!\w)" + re.escape(term) + r"(?!\w)",
+                        re.IGNORECASE)
+        for m in rx.finditer(text):
+            spans.append({"start": m.start(), "end": m.end(),
+                          "label": label, "text": m.group(),
+                          "source": "denylist"})
+    return spans
+
+
+def inject_denylist(text: str, entities: list[dict],
+                    denylist: list[str] | None,
+                    label: str = DEFAULT_DENY_LABEL) -> list[dict]:
+    """Add denylist spans to a detected entity list.
+
+    A deny span wins any overlap: a detected span it touches is dropped
+    (the rest of that span is left in the clear — the deny match is
+    what the operator asked to hide). Overlapping deny matches keep the
+    first in document order.
+    """
+    if not denylist:
+        return entities
+    deny = denylist_spans(text, denylist, label)
+    if not deny:
+        return entities
+    kept = [e for e in entities
+            if not any(_overlaps(e, d) for d in deny)]
+    merged: list[dict] = []
+    for d in sorted(deny, key=lambda x: x["start"]):
+        if any(_overlaps(d, k) for k in merged):
+            continue
+        merged.append(d)
+    return sorted(kept + merged, key=lambda d: d["start"])
+
+
+def process_entities(text: str, entities: list[dict],
+                     allowlist: list[str] | None = None,
+                     denylist: list[str] | None = None,
+                     deny_label: str = DEFAULT_DENY_LABEL) -> list[dict]:
+    """Allowlist filter, then denylist injection. Deny wins over allow:
+    a term in both lists is redacted (as a deny span)."""
+    entities = apply_allowlist(entities, allowlist)
+    entities = inject_denylist(text, entities, denylist, deny_label)
+    return entities
+
+
+def redact(text: str, neural: OnnxEngine | None = None, *,
+           operator: str = "numbered", salt: str = "",
+           allowlist: list[str] | None = None,
+           denylist: list[str] | None = None,
+           deny_label: str = DEFAULT_DENY_LABEL) -> RedactionResult:
     rule_ents = rules.scan(text)
     neural_ents = neural.predict(text) if neural is not None else []
     entities = merge_entities(rule_ents, neural_ents)
-    redacted, mapping = apply_placeholders(text, entities)
+    entities = process_entities(text, entities, allowlist, denylist,
+                                deny_label)
+    redacted, mapping = apply_placeholders(text, entities,
+                                           operator=operator, salt=salt)
     counts: dict[str, int] = {}
     for e in entities:
         counts[e["label"]] = counts.get(e["label"], 0) + 1
@@ -323,3 +473,56 @@ def redact(text: str, neural: OnnxEngine | None = None) -> RedactionResult:
         engine="rules+onnx" if neural is not None else "rules",
         model=getattr(neural, "model_path", None),
     )
+
+
+# ---------------------------------------------------------------------------
+# Streaming restore (LLM round-trips)
+# ---------------------------------------------------------------------------
+
+def _partial_suffix_len(buf: str, keys) -> int:
+    """Length of the longest buffer suffix that is a proper prefix of
+    some mapping key — text that might still grow into a placeholder
+    when the next chunk arrives, so it must not be emitted yet."""
+    if not keys:
+        return 0
+    maxk = max(len(k) for k in keys)
+    best = 0
+    for n in range(1, min(len(buf), maxk - 1) + 1):
+        suffix = buf[len(buf) - n:]
+        if any(len(k) > n and k.startswith(suffix) for k in keys):
+            best = n
+    return best
+
+
+class ChunkedRestorer:
+    """Restore placeholders from text that arrives in chunks (e.g. a
+    streaming LLM response built on scrubbed input).
+
+    feed() returns the restored text that is safe to emit now; a
+    trailing partial placeholder is buffered until it completes or
+    flush() proves it was never a placeholder. Placeholders split
+    across chunks are restored whole; unknown or partial placeholders
+    pass through untouched — feed/flush never raise and never invent
+    text.
+
+        cr = ChunkedRestorer(mapping)
+        out = cr.feed(chunk1) + cr.feed(chunk2) + cr.flush()
+    """
+
+    def __init__(self, mapping: dict):
+        self.mapping = dict(mapping)
+        self._buf = ""
+
+    def feed(self, chunk: str) -> str:
+        self._buf += chunk
+        hold = _partial_suffix_len(self._buf, self.mapping)
+        if hold:
+            emit, self._buf = self._buf[:-hold], self._buf[-hold:]
+        else:
+            emit, self._buf = self._buf, ""
+        return rules.restore_text(emit, self.mapping)
+
+    def flush(self) -> str:
+        out = rules.restore_text(self._buf, self.mapping)
+        self._buf = ""
+        return out

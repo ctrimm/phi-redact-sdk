@@ -1,4 +1,33 @@
-export type EntitySource = "rule" | "neural";
+export type EntitySource = "rule" | "neural" | "denylist";
+
+/**
+ * Anonymize operator: how entity spans are rendered in the output.
+ * Only "numbered" is reversible (it returns a mapping); the others
+ * return an empty mapping by design.
+ */
+export type AnonymizeOperator =
+  | "numbered"
+  | "label"
+  | "mask"
+  | "hash"
+  | "remove";
+
+/** Options accepted by redact() / redactBatch() / scrub(). */
+export interface RedactOptions {
+  /** Placeholder style. Default "numbered". */
+  operator?: AnonymizeOperator;
+  /** Salt for the "hash" operator. Default "". Use a secret salt:
+      unsalted hashes of low-entropy values (SSNs) are
+      dictionary-attackable. */
+  salt?: string;
+  /** Terms that are never redacted (case-insensitive exact match). */
+  allowlist?: string[];
+  /** Terms that are always redacted (case-insensitive, word-boundary
+      aware), labeled with denyLabel. Deny wins over allow. */
+  denylist?: string[];
+  /** Label for denylist spans. Default "CUSTOM". */
+  denyLabel?: string;
+}
 
 export interface Entity {
   start: number;

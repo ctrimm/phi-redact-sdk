@@ -18,7 +18,13 @@
  * and makes no HIPAA Expert Determination / Safe Harbor claim.
  */
 
-export type { Entity, EntitySource, RedactionResult } from "./types.js";
+export type {
+  AnonymizeOperator,
+  Entity,
+  EntitySource,
+  RedactOptions,
+  RedactionResult,
+} from "./types.js";
 export {
   abaRoutingOk,
   ibanValid,
@@ -29,13 +35,25 @@ export {
   ssnValid,
 } from "./rules.js";
 export {
+  ChunkedRestorer,
+  DEFAULT_DENY_LABEL,
+  OPERATORS,
+  applyAllowlist,
   applyPlaceholders,
+  denylistSpans,
+  hashToken,
+  injectDenylist,
+  maskValue,
   mergeEntities,
+  processEntities,
   redact,
+  redactBatch,
   restore,
   scan,
+  scrub,
+  sha256Hex,
 } from "./engine.js";
 export { RemoteRedactor } from "./remote.js";
 export type { RemoteOptions } from "./remote.js";
 
-export const VERSION = "0.2.0";
+export const VERSION = "0.4.0";
