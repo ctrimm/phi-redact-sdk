@@ -37,6 +37,12 @@ needs-review mode (review_margin): scored spans that miss their
 threshold but land within the margin come back on result.review for a
 human to decide instead of being silently dropped.
 
+0.6.0 adds a logging kit (phi_redact.integrations.logging_kit): a
+stdlib logging filter, a structlog processor, and — in examples/ — a
+CloudWatch subscription-filter Lambda that forwards scrubbed log
+events to stdout, Datadog, or a clean log group. See the Python
+README's "Logging integrations" section.
+
 This SDK redacts text. It is not a certified de-identification solution
 and makes no HIPAA Expert Determination / Safe Harbor claim.
 """
@@ -63,7 +69,7 @@ from .engine import (
     redact as _engine_redact,
 )
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"
 
 __all__ = [
     "ChunkedRestorer",

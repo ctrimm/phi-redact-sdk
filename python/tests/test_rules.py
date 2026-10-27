@@ -228,7 +228,7 @@ class TestRedactor:
         assert DEFAULT_MAX_LEN == 384
 
     def test_version(self):
-        assert phi_redact.__version__ == "0.5.0"
+        assert phi_redact.__version__ == "0.6.0"
 
 
 class TestPhoneBoundaries:

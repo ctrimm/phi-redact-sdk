@@ -224,6 +224,57 @@ layer and denylist injections — are never gated and never reviewed.
 A per-label threshold on `"SSN"` does not stop the SSN rule; thresholds
 govern the probabilistic layers, rules stay deterministic.
 
+## Logging integrations
+
+Scrub log lines at emit time, so PII never reaches the log store —
+CloudWatch, Datadog, or anything downstream of your logging setup.
+Full walkthroughs (both vendors, both placements, TypeScript notes):
+[docs/logging-integrations.md](docs/logging-integrations.md).
+
+A stdlib `logging` filter renders each record, redacts it, and hands
+the scrubbed line to your existing handlers:
+
+```python
+import logging
+import phi_redact
+from phi_redact.integrations.logging_kit import add_redacting_filter
+
+r = phi_redact.Redactor(model="phi-redact-v9-int8.onnx",
+                        tokenizer="tokenizer.json")
+add_redacting_filter(logging.getLogger(), r)   # or pass a handler
+
+logging.info("patient SSN 234-56-7890 checked in")
+# emits: patient SSN [SSN_1] checked in
+```
+
+`RedactingFilter(redactor, scrub_args=True, scrub_exc=True)` is the
+class behind it: `scrub_args` covers the rendered message (template +
+`%`-args); `scrub_exc` also scrubs formatted exception text, so a
+traceback mentioning an identifier is covered. The filter fails open —
+a redaction error passes the original record through rather than
+breaking the application's logging (see the module docstring for the
+tradeoff).
+
+For structlog, `make_structlog_processor(r)` returns a processor that
+scrubs the event string and, recursively, string leaves of nested
+dicts/lists. Dict keys are field names and are not scrubbed. structlog
+itself is not imported — the processor is duck-typed.
+
+For logs you cannot change at the source, `examples/lambda_log_scrubber.py`
+is a CloudWatch Logs subscription-filter Lambda: it decodes each
+batch, scrubs every event, and forwards to a destination picked by
+`LOG_SCRUB_DEST`. Pipeline-side scrubbing protects downstream
+systems; the raw lines still sit in the source log group — the guide
+explains the placement tradeoff.
+
+| Env var | Meaning |
+|---|---|
+| `LOG_SCRUB_DEST` | `stdout` (default) — the Lambda's own log group becomes the scrubbed store · `datadog` · `cloudwatch` |
+| `DD_API_KEY` | Datadog API key (dest `datadog`) |
+| `LOG_SCRUB_TARGET_LOG_GROUP` | clean log group to write (dest `cloudwatch`) |
+| `PHI_REDACT_MODEL` / `PHI_REDACT_TOKENIZER` | optional ONNX paths; unset = rules-only |
+| `PHI_REDACT_OPERATOR` / `PHI_REDACT_SALT` / `PHI_REDACT_THRESHOLD` | Redactor options |
+
 ## Presidio-parity use cases
 
 0.4.0 closes the SDK-layer gaps found in the Presidio comparison
@@ -262,6 +313,6 @@ and makes no HIPAA Expert Determination / Safe Harbor claim.
 ## Tests
 
 ```bash
-python3 -m pytest tests/ -q          # unit + integration (140 tests)
+python3 -m pytest tests/ -q          # unit + integration (158 tests)
 python3 -m pytest e2e/parity -q      # cross-SDK parity vs the TypeScript port
 ```

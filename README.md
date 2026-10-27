@@ -45,6 +45,7 @@ versioned filenames (`phi-redact-v8-int8.onnx`, `tags-v8.json`,
 
 ## Links
 
+- [Logging integrations (CloudWatch & Datadog)](docs/logging-integrations.md) — scrub logs at emit time or in the pipeline
 - Demo and writeup: https://corytrimm.com/phi-redact
 - Model and eval harness: https://huggingface.co/CDT5058/phi-redact
 
