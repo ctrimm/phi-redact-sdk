@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Interleaved three-SDK bench driver (bench format v2).
+"""Interleaved four-SDK bench driver (bench format v2).
 
 Runs the per-language harnesses (bench_python.py, bench_ts.mjs,
-rust/examples/bench.rs) round-by-round, rotating the language order
-every round so machine drift is spread across languages instead of
-systematically favoring whichever ran first. Each harness invocation
+rust/examples/bench.rs, bench/swift) round-by-round, rotating the
+language order every round so machine drift is spread across
+languages instead of systematically favoring whichever ran first. Each harness invocation
 executes one measured pass in-process (raw samples are reported);
 this driver is the single aggregator: pooled median + nearest-rank
 p95 over all samples, plus per-round medians.
@@ -38,6 +38,10 @@ TOK = os.environ.get(
 TAGS = os.environ.get(
     "TAGS", os.path.join(HOME, "workspace/phi-redact/work/v9/mac-model-dir/tags.json"))
 RS_BENCH = os.path.join(ROOT, "rust", "target", "release", "examples", "bench")
+SWIFT_BIN = os.environ.get(
+    "SWIFT_BIN", os.path.join(
+        HOME, "workspace/tooling/swift-6.1/toolchain/usr/bin/swift"))
+SW_BENCH_SCRATCH = os.environ.get("SW_BENCH_SCRATCH", "/tmp/phi-bench-swift")
 NEURAL = os.environ.get("NEURAL", "1") == "1"
 
 PER_NOTE_MODES = ["scan", "rules", "features"]
@@ -45,8 +49,17 @@ BATCH_MODES = ["batch", "batch-features"]
 NOTE_ROUNDS = 7
 BATCH_ROUNDS = 5
 
-LANGS = ["python", "typescript", "rust"]
+LANGS = ["python", "typescript", "rust", "swift"]
 NEURAL_LANGS = ["python", "rust"]
+
+
+def swift_bench():
+    import glob
+    if os.environ.get("SW_BENCH"):
+        return os.environ["SW_BENCH"]
+    hits = sorted(glob.glob(os.path.join(
+        SW_BENCH_SCRATCH, "*/release/bench-swift")))
+    return hits[0] if hits else None
 
 
 def ort_dylib():
@@ -67,6 +80,16 @@ def run_harness(lang, mode, warmups, reps, extra=()):
         cwd = ROOT
     elif lang == "typescript":
         cmd = ["node", os.path.join(HERE, "bench_ts.mjs"), mode, *extra]
+        cwd = ROOT
+    elif lang == "swift":
+        binary = swift_bench()
+        if not binary:
+            raise RuntimeError(
+                "swift bench binary not found under "
+                f"{SW_BENCH_SCRATCH}; build it first (bench/run_bench.sh "
+                "does) or set SW_BENCH to the binary path")
+        env["BENCH_SDK_ROOT"] = ROOT
+        cmd = [binary, mode, *extra]
         cwd = ROOT
     else:
         dylib = ort_dylib()
@@ -241,6 +264,8 @@ def main() -> int:
             "python": cmd_out([VENV_PY, "--version"]),
             "node": cmd_out(["node", "--version"]),
             "rustc": cmd_out(["rustc", "--version"]),
+            "swift": cmd_out([SWIFT_BIN, "--version"]).splitlines()[0]
+                     if os.path.exists(SWIFT_BIN) else "",
             "cpu": cpu,
             "cpus": os.cpu_count(),
             "os": " ".join(os.uname()[:3:2]),

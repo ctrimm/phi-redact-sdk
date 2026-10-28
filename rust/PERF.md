@@ -1,10 +1,15 @@
-# Performance comparison — Python vs TypeScript vs Rust SDKs
+# Performance comparison — Python vs TypeScript vs Rust SDKs, plus Swift (PhiRedactKit)
 
 Re-measured 2026-10-27 with the audited bench harness (format
 v2), superseding the first-pass numbers from earlier the same day.
-The canonical write-up — verification section, stage tables,
-rules-vs-neural summary, and the language-choice guide — lives in
-the repo-root [`PERFORMANCE.md`](../PERFORMANCE.md). Raw per-rep
+A fourth implementation (Swift PhiRedactKit) was added under the
+identical protocol, and after the kit gained a compiled-pattern
+cache (Mac repo PR #7) the full four-implementation sweep was
+re-run once more; **the tables below are that canonical post-fix
+sweep**, identical to the repo-root
+[`PERFORMANCE.md`](../PERFORMANCE.md), which also carries the
+verification section, rules-vs-neural summary, and the
+language-choice guide. Raw per-rep
 data: [`bench/results.json`](../bench/results.json) (mirrored to
 [`perf-results.json`](perf-results.json)); reproduce with
 `bench/run_bench.sh` from the repo root.
@@ -14,38 +19,44 @@ data: [`bench/results.json`](../bench/results.json) (mirrored to
 Per-note latency over the 15 e2e fixture notes (median / p95, ms;
 105 pooled samples per cell):
 
-| Stage | Python | TypeScript | Rust |
-| --- | ---: | ---: | ---: |
-| (a) Rules scan only | 0.0483 / 0.1285 | 0.0270 / 0.9710 | **0.0070 / 0.0232** |
-| (b) Local pipeline | 0.0572 / 0.1465 | 0.0313 / 0.0708 | **0.0081 / 0.0239** |
-| (c) Full feature pipeline | 0.0726 / 0.1834 | 0.0596 / 0.1778 | **0.0129 / 0.0449** |
-| (e) Rules + neural (v9 int8) | 1.5691 / 5.9613 | n/a | 1.2530 / 8.2882 |
-| Neural model load (s, once) | 0.295 | n/a | 0.166 |
+| Stage | Python | TypeScript | Rust | Swift (kit) |
+| --- | ---: | ---: | ---: | ---: |
+| (a) Rules scan only | 0.0477 / 0.1367 | 0.0285 / 1.0775 | **0.0069 / 0.0236** | 0.0438 / 0.1157 |
+| (b) Local pipeline | 0.0538 / 0.1443 | 0.0356 / 0.0745 | **0.0080 / 0.0231** | 0.0495 / 0.1280 |
+| (c) Full feature pipeline | 0.0739 / 0.1840 | 0.0583 / 0.1819 | **0.0130 / 0.0450** | 0.1145 / 0.5559 |
+| (e) Rules + neural (v9 int8) | 1.6797 / 4.5311 | n/a | 1.5809 / 5.6550 | n/a |
+| Neural model load (s, once) | 0.303 | n/a | 0.176 | n/a |
 
 Batch throughput, `redact_batch` over 1,000 documents:
 
-| Config | Python | TypeScript | Rust |
-| --- | ---: | ---: | ---: |
-| (b) Local pipeline | 13,158 notes/s (0.0760 ms/note) | 50,000 (0.0200) | **96,154 (0.0104)** |
-| (c) Full feature pipeline | 10,776 (0.0928) | 24,272 (0.0412) | **58,140 (0.0172)** |
+| Config | Python | TypeScript | Rust | Swift (kit) |
+| --- | ---: | ---: | ---: | ---: |
+| (b) Local pipeline | 13,263 notes/s (0.0754 ms/note) | 51,814 (0.0193) | **97,087 (0.0103)** | 15,723 (0.0636) |
+| (c) Full feature pipeline | 10,684 (0.0936) | 23,148 (0.0432) | **57,804 (0.0173)** | 5,280 (0.1894) |
 
 Neural stage decomposition (`predict()` buckets, median ms/note;
 both languages bind ONNX Runtime 1.30):
 
 | Stage | Python | Rust |
 | --- | ---: | ---: |
-| Tokenize | 0.1110 | 0.0902 |
-| ONNX inference (`session.run`) | 1.2132 | 1.1496 |
-| Post (assembly, softmax/argmax, decode, dedupe) | 0.1211 | 0.0413 |
-| `predict()` total | 1.4095 | 1.2783 |
+| Tokenize | 0.1104 | 0.1002 |
+| ONNX inference (`session.run`) | 1.2087 | 1.4502 |
+| Post (assembly, softmax/argmax, decode, dedupe) | 0.1112 | 0.0444 |
+| `predict()` total | 1.4172 | 1.6340 |
 
 Read: the local pipeline is 5–8× faster in Rust than Python and
 ~4–5× faster than TypeScript on the per-note stages (2–3× on
 batch). The neural layer
-costs a further ~1.25–1.5 ms/note in both languages that have it;
-~86–90% of `predict()` is the ONNX session call itself, which is why
+costs a further ~1.6 ms/note in both languages that have it;
+~85–89% of `predict()` is the ONNX session call itself, which is why
 the neural rows tie — the host language only shows in tokenize
-(~0.1 ms) and post-processing (Python 0.121 vs Rust 0.041 ms).
+(~0.1 ms) and post-processing (Python 0.111 vs Rust 0.044 ms).
+Swift tracks Python on stages (a)/(b); at (c) its first sweep
+(uncached recognizer/denylist compilation) measured
+0.1522 ms/note, and the pattern cache in Mac repo PR #7 brought
+it to 0.1145 — still the slowest feature pipeline of the four,
+with the residual gap not attributable to compilation (every
+compile site in the kit is now cached or compile-once).
 
 ## What the audit changed
 
@@ -61,9 +72,10 @@ by reading the harnesses before re-measuring:
    timings. V2 runners hash a canonical serialization of every
    output (redacted text, spans incl. scores, review candidates)
    and the driver refuses to count a mode as compared unless the
-   digests match. In this run **all digests matched in all seven
-   modes**, including identical neural spans+scores from the
-   Python and Rust engines on the real v9 model, and identical
+   digests match. In this run **all digests matched in all modes
+   across all four implementations** (Swift included from its
+   first sweep on), including identical neural spans+scores from
+   the Python and Rust engines on the real v9 model, and identical
    batch outputs over all 1,000 docs. Corpus identity is pinned
    by file SHA-256 plus a per-runner digest of the parsed inputs,
    and the batch corpus regeneration (seeded) is verified
@@ -93,7 +105,7 @@ reported as an inherent asymmetry, not warmed away).
   shuffle. **Fixture-derived, not representative clinical text.**
 - **Work per mode.** (a) `scan` — patterns + validators only.
   (b) default `redact` — scan + merge + operator rendering.
-  (c) (b) plus one fixed config in all three languages: hash
+  (c) (b) plus one fixed config in all four implementations: hash
   operator (salt `"bench"`), denylist `["Maria"]`, recognizers
   EMPLOYEE_ID `EMP\d{6}` @ 0.9 and REF_CODE `[A-Z]{2}-\d{4}` @ 0.8,
   REF_CODE threshold 0.9, review margin 0.2. (e) `redact` with the
@@ -109,28 +121,32 @@ reported as an inherent asymmetry, not warmed away).
 - **Builds.** Rust: `cargo build --release --features neural`
   (opt-level 3; the feature only adds the neural module). Node:
   the built `typescript/dist` (verified current vs `src`).
-  Python: the source tree on PYTHONPATH, CPython as-is.
+  Python: the source tree on PYTHONPATH, CPython as-is. Swift:
+  `swift build -c release` executable depending on PhiRedactKit
+  by path (`bench/swift/`), scratch path outside the repo.
 - **Environment.** Sandbox VM, 2 CPUs of an AMD EPYC 9D25, Linux
-  7.0.0-39-generic; Python 3.12.3, Node v24.22.1, rustc 1.99.1.
+  7.0.0-39-generic; Python 3.12.3, Node v24.22.1, rustc 1.99.1,
+  Swift 6.1 (Linux).
   Python/Rust neural both ran ONNX Runtime 1.30 (Python: bundled
   wheel; Rust: the same wheel's `libonnxruntime.so` via `ort`'s
-  `load-dynamic`).
+  `load-dynamic`). Swift's neural engine is Core ML (Apple
+  platforms only) and is n/a here.
 
 ## Caveats
 
 - **TypeScript neural is n/a, by design**: no local neural engine
   (it ships a `RemoteRedactor` HTTP client instead), so there is
   no honest TS number for mode (e). TS rows are the local pipeline.
-- Sandbox noise is real at this scale: the full sweep was run
-  twice back-to-back; local-stage medians reproduced within ~7%
-  (TypeScript scan moved 19%), TypeScript batch throughput
-  varied ~20% between sweeps, and neural p95s are
+- Sandbox noise is real at this scale: across the day's sweeps,
+  local-stage medians reproduced within ~7–9% (TypeScript scan
+  moved 19% between two audit-era runs), TypeScript batch
+  throughput varied ~20% between sweeps, and neural p95s are
   outlier-driven while neural medians stayed within ~12%.
-  Within a sweep, TypeScript feature rounds ranged
-  0.045–0.071 ms median and its scan p95 (0.97 ms) is a handful
-  of >1 ms outliers in fresh processes. Medians and
-  cross-round ratios are the stable statistics.
-- Model-load figures in this run (0.30 s Python / 0.17 s Rust)
+  Within this sweep, TypeScript's scan p95 (1.08 ms) is a
+  handful of >1 ms outliers in fresh processes, and Swift's
+  feature-pipeline round medians ran 0.113–0.141 ms. Medians
+  and cross-round ratios are the stable statistics.
+- Model-load figures in this run (0.30 s Python / 0.18 s Rust)
   are warm-page-cache values after repeated loads; the first-pass
   sweep measured 0.73 s / 0.33 s.
 - The fixture notes are short. On the 500-note clinical holdout
