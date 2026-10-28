@@ -120,6 +120,19 @@ fn load_labels(path: &Path) -> Result<HashMap<i64, String>> {
     Ok(out)
 }
 
+/// Wall-clock stage split of one `predict` call, in milliseconds.
+/// Buckets (the same definitions the Python bench harness uses):
+/// `tokenize` = all tokenizer work including the split length
+/// checks; `inference` = the ONNX `session.run` call only;
+/// `post` = everything else (tensor assembly, output extraction,
+/// softmax/argmax, BIOES decode, dedupe/sort).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct StageTimings {
+    pub tokenize_ms: f64,
+    pub inference_ms: f64,
+    pub post_ms: f64,
+}
+
 impl OnnxEngine {
     pub fn new(
         model_path: &str,
@@ -199,14 +212,48 @@ impl OnnxEngine {
     /// Neural spans for `text`. `threshold` overrides the engine's
     /// confidence gate for this call only.
     pub fn predict(&self, text: &str, threshold: Option<f64>) -> Result<Vec<Entity>> {
+        self.predict_inner(text, threshold, None)
+    }
+
+    /// `predict` plus a stage split (see `StageTimings`). Used by the
+    /// bench harness to decompose the neural pipeline; timings are
+    /// measured inside the real code path.
+    pub fn predict_timed(
+        &self,
+        text: &str,
+        threshold: Option<f64>,
+    ) -> Result<(Vec<Entity>, StageTimings)> {
+        let mut stages = StageTimings::default();
+        let out = self.predict_inner(text, threshold, Some(&mut stages))?;
+        Ok((out, stages))
+    }
+
+    fn predict_inner(
+        &self,
+        text: &str,
+        threshold: Option<f64>,
+        mut stages: Option<&mut StageTimings>,
+    ) -> Result<Vec<Entity>> {
         let gate = threshold.unwrap_or(self.threshold);
+        let t0 = std::time::Instant::now();
         let mut chunks: Vec<(String, usize)> = Vec::new();
         self.split(text, 0, &mut chunks);
+        if let Some(s) = stages.as_deref_mut() {
+            s.tokenize_ms += t0.elapsed().as_secs_f64() * 1000.0;
+        }
         let text_index = CharIndex::new(text);
         let mut entities: Vec<Entity> = Vec::new();
         for (chunk, coff) in &chunks {
-            entities.extend(self.predict_chunk(text, &text_index, chunk, *coff, gate)?);
+            entities.extend(self.predict_chunk(
+                text,
+                &text_index,
+                chunk,
+                *coff,
+                gate,
+                stages.as_deref_mut(),
+            )?);
         }
+        let t0 = std::time::Instant::now();
         // Dedupe identical spans from chunk overlap, keep best score.
         let mut best: HashMap<(usize, usize, String), Entity> = HashMap::new();
         let mut order: Vec<(usize, usize, String)> = Vec::new();
@@ -225,6 +272,9 @@ impl OnnxEngine {
         }
         let mut out: Vec<Entity> = order.into_iter().map(|k| best.remove(&k).unwrap()).collect();
         out.sort_by_key(|e| e.start);
+        if let Some(s) = stages.as_deref_mut() {
+            s.post_ms += t0.elapsed().as_secs_f64() * 1000.0;
+        }
         Ok(out)
     }
 
@@ -235,11 +285,17 @@ impl OnnxEngine {
         chunk: &str,
         coff: usize,
         gate: f64,
+        mut stages: Option<&mut StageTimings>,
     ) -> Result<Vec<Entity>> {
+        let t0 = std::time::Instant::now();
         let enc = self
             .tok
             .encode(chunk, true)
             .map_err(|e| neural_err(format!("tokenize failed: {e}")))?;
+        if let Some(s) = stages.as_deref_mut() {
+            s.tokenize_ms += t0.elapsed().as_secs_f64() * 1000.0;
+        }
+        let t_post = std::time::Instant::now();
         let chunk_index = CharIndex::new(chunk);
         let ids: Vec<i64> = std::iter::once(self.bos_id as i64)
             .chain(enc.get_ids().iter().map(|&i| i as i64))
@@ -281,9 +337,19 @@ impl OnnxEngine {
             .session
             .lock()
             .map_err(|_| neural_err("session lock poisoned"))?;
+        if let Some(s) = stages.as_deref_mut() {
+            // Tensor assembly counts as post, matching the bucket
+            // definitions (inference = session.run only).
+            s.post_ms += t_post.elapsed().as_secs_f64() * 1000.0;
+        }
+        let t_run = std::time::Instant::now();
         let outputs = session
             .run(inputs)
             .map_err(|e| neural_err(format!("inference failed: {e}")))?;
+        if let Some(s) = stages.as_deref_mut() {
+            s.inference_ms += t_run.elapsed().as_secs_f64() * 1000.0;
+        }
+        let t_post = std::time::Instant::now();
         let logits = outputs
             .get("logits")
             .ok_or_else(|| neural_err("model has no 'logits' output"))?;
@@ -320,7 +386,12 @@ impl OnnxEngine {
             pred.push(best_i as i64);
             probs.push(exps);
         }
-        Ok(self.decode(text, text_index, &offs, &pred, &probs, gate))
+        let out = self.decode(text, text_index, &offs, &pred, &probs, gate);
+        if let Some(s) = stages.as_deref_mut() {
+            // Extraction + softmax/argmax + BIOES decode count as post.
+            s.post_ms += t_post.elapsed().as_secs_f64() * 1000.0;
+        }
+        Ok(out)
     }
 
     fn decode(

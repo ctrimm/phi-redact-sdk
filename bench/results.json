@@ -1,23 +1,647 @@
 {
+  "format": 2,
   "environment": {
     "python": "Python 3.12.3",
     "node": "v24.22.1",
     "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)",
     "cpu": "AMD EPYC 9D25 126-Core Processor",
     "cpus": 2,
-    "os": "Linux 7.0.0-39-generic"
+    "os": "Linux 7.0.0-39-generic",
+    "onnxruntime": "1.30 (python wheel; rust loads the same wheel's libonnxruntime.so via ort load-dynamic)",
+    "model": "phi-redact-v9-int8.onnx (v9 int8, 11.3 MB)"
+  },
+  "corpus": {
+    "notes": {
+      "path": "e2e/parity/notes.jsonl",
+      "count": 15,
+      "file_sha256": "00171a44500d19421a0fcd8a567d91dbfa9d043f93cd4fd1f0e8cc7484874a73"
+    },
+    "batch": {
+      "path": "bench/corpus.jsonl",
+      "count": 1000,
+      "file_sha256": "c7ec2f1101f2d52552d0994d8b38250e6bf7ee666c5e5c61eda3a8ca2bc8b41e",
+      "regen_sha256": "c7ec2f1101f2d52552d0994d8b38250e6bf7ee666c5e5c61eda3a8ca2bc8b41e",
+      "regen_matches_file": true
+    }
+  },
+  "method": {
+    "per_note": "7 rounds x 15 notes, languages interleaved with rotating order per round; 2 warm-up passes in round 0 only; raw samples pooled and aggregated centrally by this driver (median + nearest-rank p95)",
+    "batch": "5 rounds x 1,000 docs, interleaved; 1 warm-up pass in round 0 only; median of round totals (per-round totals preserved in per_rep)",
+    "neural_stages": "stage buckets: tokenize = all tokenizer work incl. split checks; inference = ONNX session.run only; post = the remainder of predict (feed/tensor assembly, softmax/argmax, BIOES decode, dedupe). Python measured by timing wrappers swapped onto the real OnnxEngine; Rust measured inside OnnxEngine::predict_timed"
+  },
+  "digests": {
+    "batch": {
+      "python": {
+        "digest": [
+          "d27eef5aa9dd3ddf8fc6936daeb9bc31b8ad4f2d8b04d63a2bc46c7fa5c029c9"
+        ],
+        "digest_noscore": [
+          "d27eef5aa9dd3ddf8fc6936daeb9bc31b8ad4f2d8b04d63a2bc46c7fa5c029c9"
+        ],
+        "input_digest": [
+          "db6d49c6b7e6a3bbabdf28c0771532071d03776e1de89de6ecb6e5d12cb9b54e"
+        ]
+      },
+      "rust": {
+        "digest": [
+          "d27eef5aa9dd3ddf8fc6936daeb9bc31b8ad4f2d8b04d63a2bc46c7fa5c029c9"
+        ],
+        "digest_noscore": [
+          "d27eef5aa9dd3ddf8fc6936daeb9bc31b8ad4f2d8b04d63a2bc46c7fa5c029c9"
+        ],
+        "input_digest": [
+          "db6d49c6b7e6a3bbabdf28c0771532071d03776e1de89de6ecb6e5d12cb9b54e"
+        ]
+      },
+      "typescript": {
+        "digest": [
+          "d27eef5aa9dd3ddf8fc6936daeb9bc31b8ad4f2d8b04d63a2bc46c7fa5c029c9"
+        ],
+        "digest_noscore": [
+          "d27eef5aa9dd3ddf8fc6936daeb9bc31b8ad4f2d8b04d63a2bc46c7fa5c029c9"
+        ],
+        "input_digest": [
+          "db6d49c6b7e6a3bbabdf28c0771532071d03776e1de89de6ecb6e5d12cb9b54e"
+        ]
+      },
+      "match": true,
+      "match_noscore": true,
+      "input_match": true
+    },
+    "batch-features": {
+      "python": {
+        "digest": [
+          "3685e0e7ffc9e5d7c9842e018a0bf7d4c2e84f352f5d62a8a2f434834c669dcb"
+        ],
+        "digest_noscore": [
+          "d00256b584a485be430c63ac52f093d21d42a1a5d686f892739341db05a2d022"
+        ],
+        "input_digest": [
+          "db6d49c6b7e6a3bbabdf28c0771532071d03776e1de89de6ecb6e5d12cb9b54e"
+        ]
+      },
+      "rust": {
+        "digest": [
+          "3685e0e7ffc9e5d7c9842e018a0bf7d4c2e84f352f5d62a8a2f434834c669dcb"
+        ],
+        "digest_noscore": [
+          "d00256b584a485be430c63ac52f093d21d42a1a5d686f892739341db05a2d022"
+        ],
+        "input_digest": [
+          "db6d49c6b7e6a3bbabdf28c0771532071d03776e1de89de6ecb6e5d12cb9b54e"
+        ]
+      },
+      "typescript": {
+        "digest": [
+          "3685e0e7ffc9e5d7c9842e018a0bf7d4c2e84f352f5d62a8a2f434834c669dcb"
+        ],
+        "digest_noscore": [
+          "d00256b584a485be430c63ac52f093d21d42a1a5d686f892739341db05a2d022"
+        ],
+        "input_digest": [
+          "db6d49c6b7e6a3bbabdf28c0771532071d03776e1de89de6ecb6e5d12cb9b54e"
+        ]
+      },
+      "match": true,
+      "match_noscore": true,
+      "input_match": true
+    },
+    "features": {
+      "python": {
+        "digest": [
+          "0ac36f51bf58cf61f679e285a10782e1952f21c36d5539c29d4ac4228c2796a7"
+        ],
+        "digest_noscore": [
+          "94a57d414998d4a96f047db0b6b50ae1b745a4f9c4584a823444869b9e3ea4fe"
+        ],
+        "input_digest": [
+          "3f59b773e20f26c97d1115c9116a4e1afdacc49ea492d59d7a16a94512b75462"
+        ]
+      },
+      "rust": {
+        "digest": [
+          "0ac36f51bf58cf61f679e285a10782e1952f21c36d5539c29d4ac4228c2796a7"
+        ],
+        "digest_noscore": [
+          "94a57d414998d4a96f047db0b6b50ae1b745a4f9c4584a823444869b9e3ea4fe"
+        ],
+        "input_digest": [
+          "3f59b773e20f26c97d1115c9116a4e1afdacc49ea492d59d7a16a94512b75462"
+        ]
+      },
+      "typescript": {
+        "digest": [
+          "0ac36f51bf58cf61f679e285a10782e1952f21c36d5539c29d4ac4228c2796a7"
+        ],
+        "digest_noscore": [
+          "94a57d414998d4a96f047db0b6b50ae1b745a4f9c4584a823444869b9e3ea4fe"
+        ],
+        "input_digest": [
+          "3f59b773e20f26c97d1115c9116a4e1afdacc49ea492d59d7a16a94512b75462"
+        ]
+      },
+      "match": true,
+      "match_noscore": true,
+      "input_match": true
+    },
+    "neural": {
+      "python": {
+        "digest": [
+          "13ec57f7307bd6613f5c6081f0aecf3fc47850eeeedef5efd1bfdc00a663ec7e"
+        ],
+        "digest_noscore": [
+          "5e716f0558a5867a0aa713ea3585f60e7ad32508a8fe8084e2bf27c66fb910ca"
+        ],
+        "input_digest": [
+          "3f59b773e20f26c97d1115c9116a4e1afdacc49ea492d59d7a16a94512b75462"
+        ]
+      },
+      "rust": {
+        "digest": [
+          "13ec57f7307bd6613f5c6081f0aecf3fc47850eeeedef5efd1bfdc00a663ec7e"
+        ],
+        "digest_noscore": [
+          "5e716f0558a5867a0aa713ea3585f60e7ad32508a8fe8084e2bf27c66fb910ca"
+        ],
+        "input_digest": [
+          "3f59b773e20f26c97d1115c9116a4e1afdacc49ea492d59d7a16a94512b75462"
+        ]
+      },
+      "match": true,
+      "match_noscore": true,
+      "input_match": true
+    },
+    "neural-stages": {
+      "python": {
+        "digest": [
+          "d32d96cf39fda7c9ca63f54a0d1db30748c2fba866f9ca78db1332ab2b1e4597"
+        ],
+        "digest_noscore": [
+          "c382f1e4b585a0b700c512e968b415b4f07d54961f988e56820e5df5bdeb31e3"
+        ],
+        "input_digest": [
+          "3f59b773e20f26c97d1115c9116a4e1afdacc49ea492d59d7a16a94512b75462"
+        ]
+      },
+      "rust": {
+        "digest": [
+          "d32d96cf39fda7c9ca63f54a0d1db30748c2fba866f9ca78db1332ab2b1e4597"
+        ],
+        "digest_noscore": [
+          "c382f1e4b585a0b700c512e968b415b4f07d54961f988e56820e5df5bdeb31e3"
+        ],
+        "input_digest": [
+          "3f59b773e20f26c97d1115c9116a4e1afdacc49ea492d59d7a16a94512b75462"
+        ]
+      },
+      "match": true,
+      "match_noscore": true,
+      "input_match": true
+    },
+    "rules": {
+      "python": {
+        "digest": [
+          "32c5307e0ff5127b336697178378c7a0afc51ce29ccb30f24566720dd7d8cf33"
+        ],
+        "digest_noscore": [
+          "32c5307e0ff5127b336697178378c7a0afc51ce29ccb30f24566720dd7d8cf33"
+        ],
+        "input_digest": [
+          "3f59b773e20f26c97d1115c9116a4e1afdacc49ea492d59d7a16a94512b75462"
+        ]
+      },
+      "rust": {
+        "digest": [
+          "32c5307e0ff5127b336697178378c7a0afc51ce29ccb30f24566720dd7d8cf33"
+        ],
+        "digest_noscore": [
+          "32c5307e0ff5127b336697178378c7a0afc51ce29ccb30f24566720dd7d8cf33"
+        ],
+        "input_digest": [
+          "3f59b773e20f26c97d1115c9116a4e1afdacc49ea492d59d7a16a94512b75462"
+        ]
+      },
+      "typescript": {
+        "digest": [
+          "32c5307e0ff5127b336697178378c7a0afc51ce29ccb30f24566720dd7d8cf33"
+        ],
+        "digest_noscore": [
+          "32c5307e0ff5127b336697178378c7a0afc51ce29ccb30f24566720dd7d8cf33"
+        ],
+        "input_digest": [
+          "3f59b773e20f26c97d1115c9116a4e1afdacc49ea492d59d7a16a94512b75462"
+        ]
+      },
+      "match": true,
+      "match_noscore": true,
+      "input_match": true
+    },
+    "scan": {
+      "python": {
+        "digest": [
+          "1ad5992f63a0f7d3ada22a2d4468fd03b12ebdd36603d17dcc5d5c3628430454"
+        ],
+        "digest_noscore": [
+          "1ad5992f63a0f7d3ada22a2d4468fd03b12ebdd36603d17dcc5d5c3628430454"
+        ],
+        "input_digest": [
+          "3f59b773e20f26c97d1115c9116a4e1afdacc49ea492d59d7a16a94512b75462"
+        ]
+      },
+      "rust": {
+        "digest": [
+          "1ad5992f63a0f7d3ada22a2d4468fd03b12ebdd36603d17dcc5d5c3628430454"
+        ],
+        "digest_noscore": [
+          "1ad5992f63a0f7d3ada22a2d4468fd03b12ebdd36603d17dcc5d5c3628430454"
+        ],
+        "input_digest": [
+          "3f59b773e20f26c97d1115c9116a4e1afdacc49ea492d59d7a16a94512b75462"
+        ]
+      },
+      "typescript": {
+        "digest": [
+          "1ad5992f63a0f7d3ada22a2d4468fd03b12ebdd36603d17dcc5d5c3628430454"
+        ],
+        "digest_noscore": [
+          "1ad5992f63a0f7d3ada22a2d4468fd03b12ebdd36603d17dcc5d5c3628430454"
+        ],
+        "input_digest": [
+          "3f59b773e20f26c97d1115c9116a4e1afdacc49ea492d59d7a16a94512b75462"
+        ]
+      },
+      "match": true,
+      "match_noscore": true,
+      "input_match": true
+    }
   },
   "runs": [
-    {"median_ms": 0.0538, "p95_ms": 0.1547, "samples": 105, "notes": 15, "language": "python", "mode": "rules"},
-    {"median_ms": 0.0711, "p95_ms": 0.174, "samples": 105, "notes": 15, "language": "python", "mode": "features"},
-    {"language":"typescript","mode":"rules","median_ms":0.0275,"p95_ms":0.0616,"samples":105,"notes":15},
-    {"language":"typescript","mode":"features","median_ms":0.0417,"p95_ms":0.1397,"samples":105,"notes":15},
-    {"language": "rust", "mode": "rules", "median_ms": 0.0071, "p95_ms": 0.0191, "samples": 105, "notes": 15},
-    {"language": "rust", "mode": "features", "median_ms": 0.0127, "p95_ms": 0.0398, "samples": 105, "notes": 15},
-    {"docs": 1000, "median_total_s": 0.0729, "notes_per_sec": 13708.2, "per_note_ms": 0.0729, "reps": 5, "language": "python", "mode": "batch"},
-    {"language":"typescript","mode":"batch","docs":1000,"median_total_s":0.022,"notes_per_sec":45407,"per_note_ms":0.022,"reps":5},
-    {"language": "rust", "mode": "batch", "docs": 1000, "median_total_s": 0.0101, "notes_per_sec": 98530.1, "per_note_ms": 0.0101, "reps": 5},
-    {"median_ms": 1.5256, "p95_ms": 3.1132, "samples": 105, "notes": 15, "model_load_s": 0.728, "language": "python", "mode": "neural"},
-    {"language": "rust", "mode": "neural", "median_ms": 1.633, "p95_ms": 4.1064, "samples": 105, "notes": 15, "model_load_s": 0.3271}
-  ]
+    {
+      "language": "python",
+      "mode": "scan",
+      "median_ms": 0.0483,
+      "p95_ms": 0.1285,
+      "samples": 105,
+      "notes": 15
+    },
+    {
+      "language": "rust",
+      "mode": "scan",
+      "median_ms": 0.007,
+      "p95_ms": 0.0232,
+      "samples": 105,
+      "notes": 15
+    },
+    {
+      "language": "typescript",
+      "mode": "scan",
+      "median_ms": 0.027,
+      "p95_ms": 0.971,
+      "samples": 105,
+      "notes": 15
+    },
+    {
+      "language": "python",
+      "mode": "rules",
+      "median_ms": 0.0572,
+      "p95_ms": 0.1465,
+      "samples": 105,
+      "notes": 15
+    },
+    {
+      "language": "rust",
+      "mode": "rules",
+      "median_ms": 0.0081,
+      "p95_ms": 0.0239,
+      "samples": 105,
+      "notes": 15
+    },
+    {
+      "language": "typescript",
+      "mode": "rules",
+      "median_ms": 0.0313,
+      "p95_ms": 0.0708,
+      "samples": 105,
+      "notes": 15
+    },
+    {
+      "language": "python",
+      "mode": "features",
+      "median_ms": 0.0726,
+      "p95_ms": 0.1834,
+      "samples": 105,
+      "notes": 15
+    },
+    {
+      "language": "rust",
+      "mode": "features",
+      "median_ms": 0.0129,
+      "p95_ms": 0.0449,
+      "samples": 105,
+      "notes": 15
+    },
+    {
+      "language": "typescript",
+      "mode": "features",
+      "median_ms": 0.0596,
+      "p95_ms": 0.1778,
+      "samples": 105,
+      "notes": 15
+    },
+    {
+      "language": "python",
+      "mode": "batch",
+      "docs": 1000,
+      "median_total_s": 0.076,
+      "notes_per_sec": 13157.9,
+      "per_note_ms": 0.076,
+      "reps": 5
+    },
+    {
+      "language": "rust",
+      "mode": "batch",
+      "docs": 1000,
+      "median_total_s": 0.0104,
+      "notes_per_sec": 96153.8,
+      "per_note_ms": 0.0104,
+      "reps": 5
+    },
+    {
+      "language": "typescript",
+      "mode": "batch",
+      "docs": 1000,
+      "median_total_s": 0.02,
+      "notes_per_sec": 50000.0,
+      "per_note_ms": 0.02,
+      "reps": 5
+    },
+    {
+      "language": "python",
+      "mode": "batch-features",
+      "docs": 1000,
+      "median_total_s": 0.0928,
+      "notes_per_sec": 10775.9,
+      "per_note_ms": 0.0928,
+      "reps": 5
+    },
+    {
+      "language": "rust",
+      "mode": "batch-features",
+      "docs": 1000,
+      "median_total_s": 0.0172,
+      "notes_per_sec": 58139.5,
+      "per_note_ms": 0.0172,
+      "reps": 5
+    },
+    {
+      "language": "typescript",
+      "mode": "batch-features",
+      "docs": 1000,
+      "median_total_s": 0.0412,
+      "notes_per_sec": 24271.8,
+      "per_note_ms": 0.0412,
+      "reps": 5
+    },
+    {
+      "language": "python",
+      "mode": "neural",
+      "median_ms": 1.5691,
+      "p95_ms": 5.9613,
+      "samples": 105,
+      "notes": 15
+    },
+    {
+      "language": "rust",
+      "mode": "neural",
+      "median_ms": 1.253,
+      "p95_ms": 8.2882,
+      "samples": 105,
+      "notes": 15
+    }
+  ],
+  "neural_stages": {
+    "python": {
+      "tokenize": {
+        "median_ms": 0.111,
+        "p95_ms": 0.2378,
+        "samples": 105
+      },
+      "inference": {
+        "median_ms": 1.2132,
+        "p95_ms": 2.9492,
+        "samples": 105
+      },
+      "post": {
+        "median_ms": 0.1211,
+        "p95_ms": 0.2645,
+        "samples": 105
+      },
+      "total": {
+        "median_ms": 1.4095,
+        "p95_ms": 3.5775,
+        "samples": 105
+      }
+    },
+    "rust": {
+      "tokenize": {
+        "median_ms": 0.0902,
+        "p95_ms": 0.214,
+        "samples": 105
+      },
+      "inference": {
+        "median_ms": 1.1496,
+        "p95_ms": 2.5471,
+        "samples": 105
+      },
+      "post": {
+        "median_ms": 0.0413,
+        "p95_ms": 0.108,
+        "samples": 105
+      },
+      "total": {
+        "median_ms": 1.2783,
+        "p95_ms": 2.8591,
+        "samples": 105
+      }
+    }
+  },
+  "model_load_s": {
+    "python": 0.295,
+    "rust": 0.166
+  },
+  "per_rep": {
+    "scan": {
+      "python": [
+        0.042,
+        0.058,
+        0.0481,
+        0.0592,
+        0.0547,
+        0.048,
+        0.0483
+      ],
+      "typescript": [
+        0.0185,
+        0.0315,
+        0.0343,
+        0.0315,
+        0.0262,
+        0.0298,
+        0.0268
+      ],
+      "rust": [
+        0.006,
+        0.0071,
+        0.0077,
+        0.007,
+        0.007,
+        0.0072,
+        0.0069
+      ]
+    },
+    "rules": {
+      "python": [
+        0.0572,
+        0.0547,
+        0.0542,
+        0.0589,
+        0.0593,
+        0.0586,
+        0.0548
+      ],
+      "typescript": [
+        0.0275,
+        0.0311,
+        0.0313,
+        0.0322,
+        0.031,
+        0.0341,
+        0.0312
+      ],
+      "rust": [
+        0.0076,
+        0.0085,
+        0.0081,
+        0.0082,
+        0.0081,
+        0.0081,
+        0.0085
+      ]
+    },
+    "features": {
+      "python": [
+        0.0713,
+        0.0723,
+        0.0738,
+        0.0711,
+        0.0733,
+        0.0757,
+        0.074
+      ],
+      "typescript": [
+        0.0451,
+        0.0596,
+        0.0604,
+        0.0607,
+        0.0595,
+        0.0706,
+        0.0619
+      ],
+      "rust": [
+        0.0118,
+        0.0124,
+        0.0137,
+        0.0128,
+        0.0132,
+        0.0134,
+        0.0129
+      ]
+    },
+    "batch": {
+      "python": [
+        0.076,
+        0.0765,
+        0.0783,
+        0.0738,
+        0.0752
+      ],
+      "typescript": [
+        0.0204,
+        0.0189,
+        0.0239,
+        0.0189,
+        0.02
+      ],
+      "rust": [
+        0.0104,
+        0.0103,
+        0.0107,
+        0.0103,
+        0.0115
+      ]
+    },
+    "batch-features": {
+      "python": [
+        0.0928,
+        0.0935,
+        0.0927,
+        0.093,
+        0.0923
+      ],
+      "typescript": [
+        0.0371,
+        0.0412,
+        0.0473,
+        0.033,
+        0.0472
+      ],
+      "rust": [
+        0.0171,
+        0.0175,
+        0.0171,
+        0.0172,
+        0.018
+      ]
+    },
+    "neural": {
+      "python": [
+        1.8353,
+        1.7618,
+        1.6167,
+        4.2237,
+        1.0809,
+        2.2687,
+        1.119
+      ],
+      "rust": [
+        1.6466,
+        1.4136,
+        1.2897,
+        1.4282,
+        0.9336,
+        1.0061,
+        1.3563
+      ]
+    },
+    "neural-stages": {
+      "python": [
+        1.4521,
+        1.1397,
+        1.4095,
+        1.3917,
+        1.6965,
+        1.384,
+        1.4928
+      ],
+      "rust": [
+        1.2529,
+        0.9176,
+        1.6029,
+        1.2958,
+        1.3713,
+        1.2783,
+        1.2963
+      ]
+    }
+  }
 }

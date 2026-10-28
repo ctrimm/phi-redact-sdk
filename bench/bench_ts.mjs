@@ -1,15 +1,17 @@
-// TypeScript/Node bench harness. Prints one JSON line per run.
+// TypeScript/Node bench harness. Prints one JSON line per invocation.
 //
-//   node bench/bench_ts.mjs rules
-//   node bench/bench_ts.mjs features
-//   node bench/bench_ts.mjs batch
+//   node bench/bench_ts.mjs scan|rules|features
+//   node bench/bench_ts.mjs batch|batch-features
 //
-// Same method as bench_python.py: per-note timing over the 15 parity
-// fixture notes (2 warm-up passes, 7 measured; pooled latencies,
-// median + nearest-rank p95); batch over the 1,000-doc fixture-derived
-// corpus (1 warm-up, 5 reps). The local TS SDK has no neural engine —
-// there is deliberately no "neural" mode here (see PERF.md).
+// Driven by bench/run_bench.py, which interleaves languages
+// round-by-round; this harness executes BENCH_REPS measured passes
+// (after BENCH_WARMUPS discarded passes) in-process and reports raw
+// per-note samples plus SHA-256 digests of its inputs and outputs in
+// the payload format shared with the Python and Rust harnesses (see
+// bench/bench_python.py). The local TS SDK has no neural engine —
+// there is deliberately no "neural" mode here.
 
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
@@ -17,7 +19,7 @@ import { dirname, join } from "node:path";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
-const { redact, redactBatch } = require(
+const { redact, redactBatch, scan } = require(
   join(here, "..", "typescript", "dist", "index.js"),
 );
 
@@ -42,58 +44,135 @@ const FEATURE_OPTS = {
   reviewMargin: 0.2,
 };
 
-const median = (xs) => {
-  const s = [...xs].sort((a, b) => a - b);
-  return s[Math.floor(s.length / 2)];
-};
-const p95 = (xs) => {
-  const s = [...xs].sort((a, b) => a - b);
-  return s[Math.max(0, Math.ceil(0.95 * s.length) - 1)];
-};
+const WARMUPS = Number(process.env.BENCH_WARMUPS ?? 2);
+const REPS = Number(process.env.BENCH_REPS ?? 7);
+const BATCH_WARMUPS = Number(process.env.BENCH_WARMUPS ?? 1);
+const BATCH_REPS = Number(process.env.BENCH_REPS ?? 5);
+
+const scoreStr = (score, withScore) =>
+  !withScore || score === undefined || score === null
+    ? ""
+    : score.toFixed(4);
+
+function resultPayload(r, withScore) {
+  const lines = [r.redacted];
+  for (const e of r.entities) {
+    lines.push(
+      `${e.start},${e.end},${e.label},${scoreStr(e.score, withScore)},` +
+        `${e.source},${e.placeholder ?? ""}`,
+    );
+  }
+  for (const c of r.review) {
+    lines.push(
+      `R${c.start},${c.end},${c.label},${scoreStr(c.score, withScore)},` +
+        `${c.source}`,
+    );
+  }
+  return lines.join("\n");
+}
+
+function spansPayload(spans, withScore) {
+  return spans
+    .map(
+      (e) =>
+        `${e.start},${e.end},${e.label},${scoreStr(e.score, withScore)},` +
+        `${e.source},${e.placeholder ?? ""}`,
+    )
+    .join("\n");
+}
+
+function digestPayloads(payloads) {
+  const h = createHash("sha256");
+  for (const p of payloads) {
+    h.update(p, "utf8");
+    h.update(Buffer.from([0]));
+  }
+  return h.digest("hex");
+}
+
+function inputDigest(texts) {
+  const h = createHash("sha256");
+  for (const t of texts) {
+    h.update(t, "utf8");
+    h.update("\n");
+  }
+  return h.digest("hex");
+}
+
 const round4 = (x) => Math.round(x * 10000) / 10000;
 
-function perNote(fn, warmups = 2, reps = 7) {
-  for (let w = 0; w < warmups; w++) for (const n of notes) fn(n);
+function perNote(fn) {
+  for (let w = 0; w < WARMUPS; w++) for (const n of notes) fn(n);
   const samples = [];
-  for (let r = 0; r < reps; r++) {
+  for (let r = 0; r < REPS; r++) {
     for (const n of notes) {
       const t0 = process.hrtime.bigint();
       fn(n);
-      samples.push(Number(process.hrtime.bigint() - t0) / 1e6);
+      samples.push(round4(Number(process.hrtime.bigint() - t0) / 1e6));
     }
   }
-  return {
-    median_ms: round4(median(samples)),
-    p95_ms: round4(p95(samples)),
-    samples: samples.length,
-    notes: notes.length,
-  };
+  return samples;
 }
 
 const mode = process.argv[2];
 let out;
-if (mode === "rules") {
-  out = perNote((n) => redact(n));
-} else if (mode === "features") {
-  out = perNote((n) => redact(n, [], FEATURE_OPTS));
-} else if (mode === "batch") {
-  redactBatch(corpus);
+if (mode === "scan") {
+  // Digest pass first (untimed full pass -> steady state).
+  const digest = digestPayloads(
+    notes.map((n) => spansPayload(scan(n), true)),
+  );
+  const digestNs = digestPayloads(
+    notes.map((n) => spansPayload(scan(n), false)),
+  );
+  out = { samples_ms: perNote((n) => scan(n)), digest, digest_noscore: digestNs };
+} else if (mode === "rules" || mode === "features") {
+  const opts = mode === "rules" ? {} : FEATURE_OPTS;
+  const fn = (n) => redact(n, [], opts);
+  const digest = digestPayloads(notes.map((n) => resultPayload(fn(n), true)));
+  const digestNs = digestPayloads(
+    notes.map((n) => resultPayload(fn(n), false)),
+  );
+  out = { samples_ms: perNote(fn), digest, digest_noscore: digestNs };
+} else if (mode === "batch" || mode === "batch-features") {
+  const opts = mode === "batch" ? {} : FEATURE_OPTS;
+  // Digest from a dedicated untimed pass (not tied to warmups, so
+  // BENCH_WARMUPS=0 invocations still report it).
+  const digestResults = redactBatch(corpus, opts);
+  const digest = digestPayloads(
+    digestResults.map((r) => resultPayload(r, true)),
+  );
+  const digestNs = digestPayloads(
+    digestResults.map((r) => resultPayload(r, false)),
+  );
+  for (let w = 0; w < BATCH_WARMUPS; w++) redactBatch(corpus, opts);
   const totals = [];
-  for (let r = 0; r < 5; r++) {
+  for (let r = 0; r < BATCH_REPS; r++) {
     const t0 = process.hrtime.bigint();
-    redactBatch(corpus);
-    totals.push(Number(process.hrtime.bigint() - t0) / 1e9);
+    redactBatch(corpus, opts);
+    totals.push(round4(Number(process.hrtime.bigint() - t0) / 1e9));
   }
-  const med = median(totals);
-  out = {
-    docs: corpus.length,
-    median_total_s: round4(med),
-    notes_per_sec: Math.round((corpus.length / med) * 10) / 10,
-    per_note_ms: round4((med / corpus.length) * 1000),
-    reps: totals.length,
-  };
+  console.log(
+    JSON.stringify({
+      language: "typescript",
+      mode,
+      docs: corpus.length,
+      totals_s: totals,
+      digest,
+      digest_noscore: digestNs,
+      input_digest: inputDigest(corpus),
+    }),
+  );
+  process.exit(0);
 } else {
   console.error(`unknown mode ${mode}`);
   process.exit(2);
 }
-console.log(JSON.stringify({ language: "typescript", mode, ...out }));
+console.log(
+  JSON.stringify({
+    language: "typescript",
+    mode,
+    input_digest: inputDigest(notes),
+    notes: notes.length,
+    ...out,
+  }),
+);

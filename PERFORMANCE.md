@@ -1,95 +1,183 @@
 # Performance — Python vs TypeScript vs Rust SDKs
 
-Measured 2026-10-27, all three SDKs on the same machine, same
-corpora, same work per mode. Headline: on the local (non-neural)
-pipeline the Rust SDK is ~7.6× faster than Python and ~3.9× faster
-than TypeScript at the median for rules-only redaction, and ~7.2× /
-~2.2× on batch throughput. The neural pipeline is effectively tied
-between Python and Rust — both spend their time inside the same
-ONNX Runtime, so the host language contributes little. Raw data:
-[`bench/results.json`](bench/results.json); reproduce with
-`bench/run_bench.sh` from the repo root. Extended notes:
+Re-measured 2026-10-27 with an audited, stage-decomposed harness
+(bench format v2), superseding the same-day first-pass numbers in
+git history. The audit found three defects in the original sweep —
+the "rules-only" mode actually ran the full default redact path,
+outputs were never compared across languages, and languages ran in
+a fixed sequential order — and fixed all three before re-measuring
+(see "Apples-to-apples verification" below). Headline: on the local
+pipeline Rust is ~7× Python and ~4× TypeScript at the median;
+the neural (RoBERTa-style token classifier) pipeline is dominated
+(~86–90%) by ONNX Runtime inference in both languages that have it,
+so Python and Rust land within noise of each other there. Raw
+per-rep data: [`bench/results.json`](bench/results.json);
+reproduce with `bench/run_bench.sh`. Extended notes:
 [`rust/PERF.md`](rust/PERF.md).
 
 ## Results
 
-Per-note latency over the 15 e2e fixture notes (median / p95, ms):
+Per-note latency over the 15 e2e fixture notes (median / p95, ms;
+105 pooled samples per cell):
 
-| Mode | Python | TypeScript | Rust |
+| Stage | Python | TypeScript | Rust |
 | --- | ---: | ---: | ---: |
-| Rules-only pipeline | 0.0538 / 0.1547 | 0.0275 / 0.0616 | **0.0071 / 0.0191** |
-| Full feature pipeline | 0.0711 / 0.1740 | 0.0417 / 0.1397 | **0.0127 / 0.0398** |
-| Full neural pipeline (v9 int8) | 1.5256 / 3.1132 | n/a | 1.6330 / 4.1064 |
-| Neural model load (s, once) | 0.728 | n/a | 0.327 |
+| (a) Rules scan only (patterns + validators) | 0.0483 / 0.1285 | 0.0270 / 0.9710 | **0.0070 / 0.0232** |
+| (b) Local pipeline (scan + merge + operators) | 0.0572 / 0.1465 | 0.0313 / 0.0708 | **0.0081 / 0.0239** |
+| (c) Full feature pipeline ((b) + recognizers, lists, thresholds/review) | 0.0726 / 0.1834 | 0.0596 / 0.1778 | **0.0129 / 0.0449** |
+| (e) Rules + neural pipeline (v9 int8, combined) | 1.5691 / 5.9613 | n/a | 1.2530 / 8.2882 |
+| Neural model load (s, once) | 0.295 | n/a | 0.166 |
 
-Batch throughput, `redact_batch` over 1,000 documents:
+Batch throughput, `redact_batch` over 1,000 documents (notes/sec;
+amortized ms/note in parentheses):
 
-| | Python | TypeScript | Rust |
+| Config | Python | TypeScript | Rust |
 | --- | ---: | ---: | ---: |
-| notes/sec | 13,708 | 45,407 | **98,530** |
-| amortized ms/note | 0.0729 | 0.0220 | 0.0101 |
+| (b) Local pipeline | 13,158 (0.0760) | 50,000 (0.0200) | **96,154 (0.0104)** |
+| (c) Full feature pipeline | 10,776 (0.0928) | 24,272 (0.0412) | **58,140 (0.0172)** |
 
-## Environment
+Neural stage decomposition — `predict()` split into buckets
+(median ms per note; both languages bind the same ONNX Runtime
+1.30 native library):
 
-- Sandbox VM, 2 vCPUs of an AMD EPYC 9D25, Linux 7.0.0-39-generic
-- Python 3.12.3, Node v24.22.1, rustc 1.99.1
-- Python and Rust neural both ran ONNX Runtime 1.30 (Python: its
-  bundled wheel; Rust: the same wheel's `libonnxruntime.so` via
-  `ort`'s `load-dynamic`)
+| Stage | Python | Rust |
+| --- | ---: | ---: |
+| Tokenize (tokenizer encode incl. split checks) | 0.1110 | 0.0902 |
+| ONNX inference (`session.run` only) | 1.2132 | 1.1496 |
+| Post (feed/tensor assembly, softmax/argmax, BIOES decode, dedupe) | 0.1211 | 0.0413 |
+| `predict()` total | 1.4095 | 1.2783 |
 
-## Methodology
+**Rules vs neural, in one line:** the rules engine costs
+0.05–0.07 ms/note in Python and ~0.01 ms/note in Rust; adding the
+neural layer costs a further ~1.25–1.5 ms/note in both — roughly
+86–90% of it is the ONNX `session.run` itself, ~0.1 ms is
+tokenization, and the only stage where the host language is really
+visible is post-processing (Python 0.121 ms vs Rust 0.041 ms).
+(The stage totals and the combined row above come from separate
+interleaved round sets and differ by ~10% run-to-run variance;
+the stage *shares* are the reliable output of the decomposition.)
 
-- **Corpora.** Per-note modes: the 15 synthetic fixture notes from
-  `e2e/parity/notes.jsonl` (short notes, ~60–200 chars). Batch:
-  1,000 documents built by `bench/gen_corpus.py` — fixture notes
-  repeated with a varying `Log entry N.` suffix in a seeded shuffle.
-  **Fixture-derived, not representative clinical text**; longer
-  documents shift absolute numbers (chunking, more spans), though
-  the local pipeline is linear in text length.
-- **Work per mode.** Rules-only: default `Redactor` redaction.
-  Full feature pipeline: one fixed configuration in all three
-  languages — hash operator (salt `"bench"`), denylist `["Maria"]`,
-  two recognizers (EMPLOYEE_ID `EMP\d{6}` @ 0.9; REF_CODE
-  `[A-Z]{2}-\d{4}` @ 0.8), per-label threshold REF_CODE 0.9, review
-  margin 0.2. Batch: `redact_batch` / `redactBatch` with the default
-  configuration. Neural: `Redactor` with the real **v9 int8 ONNX**
-  (11.3 MB) + v9 tokenizer; model load timed separately and
-  excluded from per-note numbers.
-- **Timing.** Per-note modes: each note timed individually, 2
-  warm-up passes discarded, 7 measured passes, all 105 samples
-  pooled; median and nearest-rank p95 reported. Batch: 1 warm-up,
-  5 timed reps, median total. Sequential runs on an otherwise idle
-  VM.
-- **Builds.** Rust: `cargo build --release` (opt-level 3). Node:
-  the built `typescript/dist`. Python: the source tree on
-  PYTHONPATH, CPython as-is.
+## Apples-to-apples verification
 
-## Key findings
+The v2 harness was built to make the comparison provable rather
+than plausible:
 
-- **Local pipeline:** Rust is ~7.6× Python and ~3.9× TypeScript at
-  the median for rules-only, ~5.6× / ~3.3× with the full feature
-  stack on, and ~7.2× / ~2.2× on batch throughput.
-- **Neural is a tie:** Python 1.5256 ms/note vs Rust 1.6330 ms/note
-  — both runtimes are bound by ONNX Runtime 1.30 inference, not by
-  host-language overhead. Rust loads the model about 2× faster in
-  this harness (0.327 s vs 0.728 s).
-- **Regex compile cache matters:** `regex::Regex::new` costs
-  ~0.2 ms per pattern (Unicode tables). The Python SDK recompiles
-  recognizer/denylist patterns per call but pays once via CPython's
-  `re` cache. The Rust port therefore caches compiled patterns
-  process-globally; without the cache, Rust's feature-pipeline
-  median was 0.50 ms/note instead of 0.0127.
+- **Corpus identity.** All runners read the same two files:
+  `e2e/parity/notes.jsonl` (SHA-256
+  `00171a44500d19421a0fcd8a567d91dbfa9d043f93cd4fd1f0e8cc7484874a73`,
+  15 notes, pure ASCII, 0–130 chars) and `bench/corpus.jsonl`
+  (SHA-256 `c7ec2f1101f2d52552d0994d8b38250e6bf7ee666c5e5c61eda3a8ca2bc8b41e`,
+  1,000 docs). The batch corpus is generated by
+  `bench/gen_corpus.py` from a fixed seed; the driver re-generates
+  it and confirms the hash matches the file on disk. Each runner
+  additionally reports a digest of the parsed inputs it actually
+  read — identical across languages in every mode.
+- **Config identity.** The (c) configuration is one fixed literal
+  config written out in each harness: hash operator (salt
+  `"bench"`), denylist `["Maria"]`, recognizers EMPLOYEE_ID
+  `EMP\d{6}` @ 0.9 and REF_CODE `[A-Z]{2}-\d{4}` @ 0.8, per-label
+  threshold REF_CODE 0.9, review margin 0.2. Modes (a)/(b) use each
+  SDK's default configuration.
+- **Output-digest equality.** Every runner hashes a canonical
+  serialization of its outputs (redacted text, entity spans with
+  label/score/source/placeholder, review candidates) for every
+  mode. In this run **all digests matched across all languages in
+  all seven modes** — including the scored digest for the full
+  neural pipeline, i.e. Python and Rust produced identical spans
+  with identical scores (to 4 decimals) on the real v9 model, and
+  identical batch outputs over all 1,000 documents. A mode only
+  counts as compared when its digests match; a mismatch fails the
+  driver.
+- **Timed regions.** Engine construction, file I/O, and model load
+  are outside every timed region in all three harnesses; model load
+  is reported separately. Each invocation runs an untimed digest
+  pass before timing, so every language is measured in steady
+  state; round 0 adds 2 explicit warm-up passes.
+- **Interleaving + central aggregation.** The driver
+  (`bench/run_bench.py`) runs 7 rounds (5 for batch), rotating the
+  language order each round, and pools the raw samples itself —
+  one median/p95 implementation for all languages, per-round
+  medians preserved in `bench/results.json`.
+- **Inherent platform asymmetries (facts, not fixes).** TypeScript
+  constructs a fresh `RegExp` for every pattern on every scan
+  (required: `/g` regexes are stateful) — that cost is part of its
+  steady state. Python "recompiles" recognizer/denylist patterns
+  per call but pays once via CPython's `re` cache. Rust compiles
+  recognizer/denylist patterns through a process-global cache and
+  its built-in rule patterns once; without the cache its feature
+  pipeline measured 0.50 ms/note in the first-pass sweep. Rust
+  public offsets are character indices, TypeScript's are UTF-16
+  code units, Python's are code points — identical on this
+  all-ASCII corpus, a real difference on non-ASCII text. The
+  TypeScript bench runs the prebuilt `typescript/dist` (verified
+  current against `src`); Python runs the source tree on
+  PYTHONPATH; Rust runs `cargo build --release` with the `neural`
+  feature enabled for all modes (the feature only adds the neural
+  module; local-pipeline code is identical).
+
+## Choosing a language
+
+Grounded in the measurements above plus the SDKs' actual feature
+sets:
+
+- **Python** — the fullest surface: the only SDK with the logging
+  kit (CloudWatch/Datadog scrubbing), a local neural engine, and
+  the reference implementation every port is parity-tested
+  against. Its local pipeline is the slowest of the three
+  (13.2k notes/sec batch) and its neural pipeline runs ≈640
+  notes/sec single-threaded at the median — ample for application
+  backends, log pipelines, and batch jobs that are not
+  throughput-bound.
+- **TypeScript** — the only SDK that runs in the browser, and the
+  natural fit for Node services; local pipeline performance sits
+  between Python and Rust (50.0k notes/sec batch). It has **no
+  local neural engine by design**: neural detection goes through
+  the `redact serve` endpoint (`RemoteRedactor`), so a TS
+  deployment that needs the model also runs a server. No logging
+  kit (scrub in your logging transport with `scrub()`).
+- **Rust** — the throughput choice: 5–8× Python across the local
+  stages, 96k notes/sec batch, and a local neural engine
+  (feature-gated) whose inference ties Python's because both bind
+  the same ONNX Runtime — its edge is the host-side work around
+  inference (post-processing ~2.9× faster, model load ~1.8×
+  faster in this run). Best for high-volume pipelines, CLIs, and embedding;
+  the cost is integration effort (native build, FFI if you embed
+  it in another runtime) and no logging kit.
+
+## Environment and method
+
+- Sandbox VM, 2 vCPUs of an AMD EPYC 9D25, Linux 7.0.0-39-generic;
+  Python 3.12.3, Node v24.22.1, rustc 1.99.1. One session, one
+  machine, interleaved rounds (see above).
+- Corpora: the 15 synthetic fixture notes (short, ~0–130 chars)
+  and the 1,000-doc fixture-derived batch corpus. **Fixture-derived,
+  not representative clinical text**; longer documents shift
+  absolute numbers (chunking engages, more spans), though the
+  local pipeline is linear in text length.
+- Neural: the real **v9 int8 ONNX** (11.3 MB) — a RoBERTa-style
+  token classifier — + v9 tokenizer. Python inference runs its
+  bundled ONNX Runtime 1.30 wheel; Rust loads the same wheel's
+  `libonnxruntime.so` via `ort`'s `load-dynamic`.
 
 ## Caveats
 
-- **TypeScript neural is n/a, by design**: the TS SDK has no local
-  neural engine (it ships a `RemoteRedactor` HTTP client instead),
-  so there is no honest TS number for the neural mode. TS rows are
-  the local pipeline, like the rules-only and feature rows.
-- Sandbox VM numbers are noisy at the microsecond scale (repeat
-  sweeps moved batch throughput ±15%); ratios between languages
-  were stable across sweeps, absolute values less so. Do not quote
+- Sandbox VM numbers are noisy at the microsecond scale. The
+  full sweep was run twice back-to-back as a repeatability check:
+  local-stage medians reproduced within ~7% between sweeps
+  (TypeScript scan, the noisiest cell, moved 19%), TypeScript
+  batch throughput varied ~20%, and neural p95s are
+  outlier-driven (5.96 / 8.29 ms this sweep vs 3.09 / 2.88 ms in
+  the repeat) while neural medians stayed within ~12%. Within a
+  sweep, TypeScript's feature-pipeline round medians ranged
+  0.045–0.071 ms and its scan p95 (0.97 ms) reflects a handful of
+  >1 ms outlier samples (fresh-process JIT/GC effects) — medians
+  are the stable statistic here; ratios between languages were
+  consistent across rounds, absolute values less so. Do not quote
   these as production benchmarks.
+- Model-load times in this run (0.30 s / 0.17 s) benefited from a
+  warm page cache after repeated loads in the same session; the
+  first-pass sweep measured 0.73 s / 0.33 s. Treat load time as
+  "a few hundred ms", not a precise figure.
 - The fixture notes are short. On the 500-note clinical holdout
   used in the Presidio comparison, Python's full neural pipeline
   measured 8.4 ms/note p50 — document length dominates.
