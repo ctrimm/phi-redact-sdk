@@ -212,7 +212,8 @@ if mode == "selftest" {
 }
 
 let root = env["BENCH_SDK_ROOT"] ?? FileManager.default.currentDirectoryPath
-let notes = loadNotes(root + "/e2e/parity/notes.jsonl")
+let notes = loadNotes(env["BENCH_NOTES_PATH"]
+    ?? root + "/e2e/parity/notes.jsonl")
 let isBatch = mode.hasPrefix("batch")
 let warmups = Int(env["BENCH_WARMUPS"] ?? "") ?? (isBatch ? 1 : 2)
 let reps = Int(env["BENCH_REPS"] ?? "") ?? (isBatch ? 5 : 7)

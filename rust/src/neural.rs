@@ -302,22 +302,10 @@ impl OnnxEngine {
             .chain(std::iter::once(self.eos_id as i64))
             .collect();
         let n = ids.len();
-        // Global CHAR offsets with (0,0) sentinels for the specials,
-        // exactly like the Python engine. Tokenizer offsets are byte
-        // ranges within the chunk; convert to chunk chars, then shift.
-        let mut offs: Vec<(usize, usize)> = Vec::with_capacity(n);
-        offs.push((0, 0));
-        for &(bs, be) in enc.get_offsets() {
-            if bs == 0 && be == 0 {
-                offs.push((0, 0));
-            } else {
-                offs.push((
-                    chunk_index.char_of_byte(bs) + coff,
-                    chunk_index.char_of_byte(be) + coff,
-                ));
-            }
-        }
-        offs.push((0, 0));
+        // Global CHAR offsets, built exactly like the Python engine
+        // (see `global_offsets`): tokenizer offsets are byte ranges
+        // within the chunk; convert to chunk chars, then shift.
+        let offs = global_offsets(enc.get_offsets(), &chunk_index, coff);
 
         let mask: Vec<i64> = vec![1; n];
         let types: Vec<i64> = vec![0; n];
@@ -487,6 +475,39 @@ fn round4(x: f64) -> f64 {
     (x * 10000.0).round() / 10000.0
 }
 
+/// Global char offsets for one chunk's encoding, mirroring the
+/// Python engine exactly (`OnnxEngine.predict`):
+/// `[(0, 0)] + [(s + coff, e + coff) for s, e in enc.offsets] + [(0, 0)]`.
+///
+/// EVERY encoding offset is shifted — including the `(0, 0)` offsets
+/// the tokenizer reports for the [CLS]/[SEP] specials, which become
+/// `(coff, coff)`. The decoder's special-token test skips only
+/// offsets exactly equal to `(0, 0)`, so for chunks after the first
+/// those positions are decoded as content: their predictions can
+/// open or extend spans, and their confidences enter span score
+/// means. This is load-bearing for parity with Python (see the
+/// chunk-boundary regression test in tests/neural.rs):
+/// special-casing `(0, 0)` here drops the boundary token from the
+/// mean — on one bisected document that moved a span score from
+/// 0.9202 to 0.9903 and flipped the keep-highest-score merge,
+/// leaving a street address unredacted.
+fn global_offsets(
+    enc_offsets: &[(usize, usize)],
+    chunk_index: &CharIndex,
+    coff: usize,
+) -> Vec<(usize, usize)> {
+    let mut offs: Vec<(usize, usize)> = Vec::with_capacity(enc_offsets.len() + 2);
+    offs.push((0, 0));
+    for &(bs, be) in enc_offsets {
+        offs.push((
+            chunk_index.char_of_byte(bs) + coff,
+            chunk_index.char_of_byte(be) + coff,
+        ));
+    }
+    offs.push((0, 0));
+    offs
+}
+
 /// Whitespace trim on char spans (Python `_trim`).
 fn trim(text: &str, index: &CharIndex, mut s: usize, mut e: usize) -> (usize, usize) {
     let chars = |i: usize| index.slice(text, i, i + 1).chars().next();
@@ -497,4 +518,53 @@ fn trim(text: &str, index: &CharIndex, mut s: usize, mut e: usize) -> (usize, us
         e -= 1;
     }
     (s, e)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The chunk-boundary parity mechanism, pinned at the offset
+    /// layer: encoding offsets of (0, 0) (the [CLS]/[SEP] specials)
+    /// must come out shifted by the chunk offset, exactly like
+    /// Python's `[(s + coff, e + coff) for s, e in enc.offsets]` —
+    /// NOT pinned to (0, 0), which is what the decoder treats as a
+    /// skippable sentinel. Reverting `global_offsets` to the old
+    /// special-case fails this test.
+    #[test]
+    fn global_offsets_shift_specials_like_python() {
+        let chunk = "x Apt. 36 done";
+        let index = CharIndex::new(chunk);
+        // Byte ranges as the tokenizer reports them for one chunk:
+        // [CLS] (0,0), four content tokens, [SEP] (0,0).
+        let enc = [(0, 0), (0, 1), (1, 5), (5, 6), (6, 9), (0, 0)];
+        let offs = global_offsets(&enc, &index, 886);
+        assert_eq!(
+            offs,
+            vec![
+                (0, 0),     // the engine's own bos sentinel
+                (886, 886), // [CLS]: (0,0) shifted — decoded as content
+                (886, 887),
+                (887, 891),
+                (891, 892),
+                (892, 895),
+                (886, 886), // [SEP]: same treatment
+                (0, 0),     // the engine's own eos sentinel
+            ]
+        );
+    }
+
+    /// First chunk (coff = 0): shifted specials land on (0, 0) and
+    /// stay skippable — the one case where the old and new
+    /// constructions agree.
+    #[test]
+    fn global_offsets_first_chunk_specials_stay_zero() {
+        let chunk = "abc";
+        let index = CharIndex::new(chunk);
+        let enc = [(0, 0), (0, 3), (0, 0)];
+        assert_eq!(
+            global_offsets(&enc, &index, 0),
+            vec![(0, 0), (0, 0), (0, 3), (0, 0), (0, 0)]
+        );
+    }
 }

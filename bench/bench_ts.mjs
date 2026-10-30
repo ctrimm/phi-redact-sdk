@@ -23,7 +23,9 @@ const { redact, redactBatch, scan } = require(
   join(here, "..", "typescript", "dist", "index.js"),
 );
 
-const notes = readFileSync(join(here, "..", "e2e", "parity", "notes.jsonl"), "utf8")
+const notesPath = process.env.BENCH_NOTES_PATH ??
+  join(here, "..", "e2e", "parity", "notes.jsonl");
+const notes = readFileSync(notesPath, "utf8")
   .split("\n")
   .filter((l) => l.trim())
   .map((l) => JSON.parse(l).note);

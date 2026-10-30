@@ -118,6 +118,159 @@ for a Rust backend in the Mac app. The kit's one real deficit —
 per-call regex compilation in the feature path — was a caching
 fix in Swift, not a rewrite, and it has shipped.
 
+## Document length
+
+Everything above is measured on ~60-character fixture notes.
+Real inputs are longer, and cost does not scale uniformly, so the
+same harness also ran a length curve: four seeded corpora
+(`bench/gen_length_tiers.py`, deterministic; each file
+regen-checked by SHA-256) composed from the fixture sentences
+plus PHI-bearing and filler clinical/case-note templates —
+~500, ~2,000, ~10,000 and ~50,000 characters. Same driver, same
+interleaving, same digest gate; the corpora are passed to the
+harnesses via a `BENCH_NOTES_PATH` override that defaults to the
+canonical files. Local modes ran 3 rounds; neural rounds were
+sized per tier (2/2/1/1) because neural predict costs seconds
+per document at the top tier. Raw data:
+[`bench/length_results.json`](bench/length_results.json);
+reproduce with `python3 bench/run_bench.py --lengths`.
+(Tier files: 500 = `bb360752…`, 2,000 = `6a628757…`,
+10,000 = `15098851…`, 50,000 = `65474993…`.)
+
+What each tier corresponds to in practice:
+
+| Tier (chars) | Actual median | Docs | Representative use case |
+| --- | ---: | ---: | --- |
+| ~100 | ~62 | 15 + 1,000 | A log line, a chat message, a single form field — the logging-kit and LLM prompt-scrub regime (the headline tables above) |
+| ~500 | 500 | 100 | A patient portal message, a referral note, a ticket comment |
+| ~2,000 | 1,991 | 100 | A standard encounter or caseworker note; roughly two minutes of dictated speech-to-text |
+| ~10,000 | 9,984 | 50 | A full speech-to-text encounter transcript (10+ minutes of dictation), a discharge summary, a 2–3 page document |
+| ~50,000 | 49,985 | 20 | A multi-page record bundle (10+ pages) processed as one document — the document-redaction pipeline's batch regime |
+
+Median ms per document (medians over pooled per-document
+samples; the ~60 row is the canonical sweep above):
+
+| Tier | Stage | Python | TypeScript | Rust | Swift (kit) |
+| --- | --- | ---: | ---: | ---: | ---: |
+| ~60 (fixture notes) | (a) Rules scan | 0.0477 | 0.0285 | 0.0069 | 0.0438 |
+| ~60 (fixture notes) | (b) Local pipeline | 0.0538 | 0.0356 | 0.0080 | 0.0495 |
+| ~60 (fixture notes) | (c) Feature pipeline | 0.0739 | 0.0583 | 0.0130 | 0.1145 |
+| ~60 (fixture notes) | (e) Neural | 1.6797 | n/a | 1.5809 | n/a |
+| 500 (median 500) | (a) Rules scan | 0.3642 | 0.0360 | 0.0273 | 0.2298 |
+| 500 (median 500) | (b) Local pipeline | 0.3647 | 0.0546 | 0.0343 | 0.2563 |
+| 500 (median 500) | (c) Feature pipeline | 0.4214 | 0.0966 | 0.0500 | 0.6225 |
+| 500 (median 500) | (e) Neural | 8.6016 | n/a | 7.9637 | n/a |
+| 2,000 (median 1,991) | (a) Rules scan | 1.3352 | 0.1062 | 0.1076 | 0.8220 |
+| 2,000 (median 1,991) | (b) Local pipeline | 1.4251 | 0.1300 | 0.1293 | 0.9474 |
+| 2,000 (median 1,991) | (c) Feature pipeline | 1.6099 | 0.2833 | 0.1950 | 2.5749 |
+| 2,000 (median 1,991) | (e) Neural | 47.88 | n/a | 38.91 | n/a |
+| 10,000 (median 9,984) | (a) Rules scan | 6.9908 | 0.5525 | 0.5510 | 3.9362 |
+| 10,000 (median 9,984) | (b) Local pipeline | 7.3535 | 0.7289 | 0.6411 | 4.5751 |
+| 10,000 (median 9,984) | (c) Feature pipeline | 8.7968 | 1.6976 | 0.9787 | 12.22 |
+| 10,000 (median 9,984) | (e) Neural | 240.7 | n/a | 223.9 | n/a |
+| 50,000 (median 49,985) | (a) Rules scan | 43.48 | 5.0354 | 2.9231 | 20.25 |
+| 50,000 (median 49,985) | (b) Local pipeline | 46.49 | 7.0773 | 3.5454 | 23.06 |
+| 50,000 (median 49,985) | (c) Feature pipeline | 59.02 | 11.97 | 5.4419 | 61.67 |
+| 50,000 (median 49,985) | (e) Neural | 1,385.9 | n/a | 1,390.3 | n/a |
+
+Steady-state rate, ms per 1,000 characters at the 10,000 /
+50,000 tiers (median ms ÷ median chars × 1,000):
+
+| Stage | Python | TypeScript | Rust | Swift (kit) |
+| --- | ---: | ---: | ---: | ---: |
+| (a) Rules scan | 0.700 / 0.870 | 0.055 / 0.101 | 0.055 / 0.059 | 0.394 / 0.405 |
+| (b) Local pipeline | 0.737 / 0.930 | 0.073 / 0.142 | 0.064 / 0.071 | 0.458 / 0.461 |
+| (c) Feature pipeline | 0.881 / 1.181 | 0.170 / 0.239 | 0.098 / 0.109 | 1.224 / 1.234 |
+| (e) Neural | 24.113 / 27.727 | n/a / n/a | 22.427 / 27.814 | n/a / n/a |
+
+Reading the curve:
+
+- **The local stages are linear in length from ~500 chars.**
+  Per-1,000-char rates at 500, 2,000 and 10,000 chars sit within
+  ~±10% of each other in nearly every cell; per-call fixed costs
+  are small (≤ ~0.05 ms) and dominate only the ~60-char reference
+  row. Two exceptions at 50,000 chars: Python's local rates rise
+  ~25–35% and TypeScript's roughly double, while Rust's and
+  Swift's stay flat — consistent with span-volume-driven work
+  (merge/render over ~1,000 spans per document) costing more in
+  the Python and TS pipelines, though that mechanism is inferred,
+  not profiled.
+- **Neural cost steps up at the windowing transition, then runs
+  linear in chunk count.** At 500 chars a document fits in one
+  partial 382-token window (17.2 ms/1,000 chars, Python); from
+  2,000 chars every window runs at full length and the rate
+  settles at ~24 ms/1,000 chars, drifting to ~27.7 at 50,000.
+  The drift tracks the tokenize bucket: its share of `predict()`
+  grows from ~9% (500–2,000 chars) to ~15% (Python) / ~19%
+  (Rust) at 10,000, because the splitter re-encodes text at each
+  recursion level. Inference remains the majority (~60–85% of
+  predict across tiers and languages); post-processing stays
+  ≤ ~6%. (Stage decomposition was collected at the 500, 2,000
+  and 10,000 tiers, not at 50,000.)
+- **Python vs Rust neural converges to a tie at length:**
+  8.60 vs 7.96 ms at 500 chars, 47.9 vs 38.9 at 2,000, 240.7 vs
+  223.9 at 10,000 — and 1,385.9 vs 1,390.3 ms at 50,000. At
+  document scale the host language disappears; it is all ONNX
+  Runtime, in both.
+- **At the top tier the neural layer is the pipeline:** a
+  50,000-char record bundle costs ~1.4 s of neural per document
+  in either SDK language, against 3.5–62 ms of local pipeline —
+  97–99.7% of the full-pipeline time.
+
+Digest gate at length — and a parity finding. Local modes
+(scan, rules, features) match across all four implementations
+at every tier, scored and no-score. Neural predict span sets
+also match everywhere measured: after the chunk-boundary fix
+described below, the no-score digests agree at every tier in
+both neural modes. One standing qualification, new at length:
+
+1. **Scored digests diverge at every tier ≥ 2,000** in both
+   neural modes (they match at 500 and on the fixture notes).
+   Span scores are means of per-token confidences; with hundreds
+   to ~1,100 spans per document, some span's mean lands within a
+   rounding unit of the 4-decimal digest format and the two ONNX
+   session configurations round it differently. Bisected at
+   50,000 chars: 7 of 20 documents contain at least one such
+   span; the one examined in detail (doc 9) had exactly one —
+   a NAME_PATIENT span over the word "Edema", 0.7364 (Python)
+   vs 0.7363 (Rust), identical span set. This is a formatting-
+   level sensitivity of the scored digest, not a span
+   difference — but it means scored byte-parity, exact on the
+   fixture corpus, does not survive contact with documents.
+2. **One genuine output divergence, tier 2,000, 1 of 100
+   documents — FOUND AND FIXED (2026-10-29).** In doc 59, an
+   ADDRESS span ("Apt. 36") that begins at the second chunk's
+   leading token scored 0.9202 in Python and 0.9903 in Rust.
+   Root cause, pinned down: Python's `predict` shifts *every*
+   tokenizer offset by the chunk offset — including the (0, 0)
+   offsets of the [CLS]/[SEP] specials, which become
+   (coff, coff) — and its decode skips only offsets exactly
+   equal to (0, 0), so for chunks after the first the
+   [CLS]-position prediction (here B-ADDRESS at 0.7096) opens
+   the span and its confidence enters the score mean. Rust's
+   offset construction stored (0, 0) for those positions
+   unshifted, so its decode always skipped them and scored the
+   span over the three content tokens only. The merge keeps the
+   higher-scored of two overlapping ADDRESS spans, so the
+   winner flipped: Python redacted "77 Harbor Blvd, Apt. 36",
+   Rust redacted only "Apt. 36" and left the street name and
+   number in the clear. The fix aligns Rust to the Python
+   reference: `predict_chunk` now builds offsets through a
+   `global_offsets` helper that shifts every encoding offset,
+   with no (0, 0) special case. Regression coverage: a Rust
+   integration test pins doc 59's Python spans and scores
+   (failed pre-fix at 0.9903, passes post-fix), and unit tests
+   pin the offset semantics. Post-fix verification: the tier
+   2,000 full-pipeline no-score digest now matches Python
+   (it was the only no-score mismatch at any tier), and
+   no-score digests match at every tier in both neural modes;
+   the scored digests still diverge at tiers ≥ 2,000 per
+   Finding 1, which is unaffected. The digest fields in
+   `bench/length_results.json` were regenerated for the neural
+   sections of the 2,000 / 10,000 / 50,000 tiers; the timing
+   runs are the original sweep's (the fix is an O(1)-per-token
+   offset change and does not move them).
+
 ## Apples-to-apples verification
 
 The v2 harness was built to make the comparison provable rather
@@ -130,7 +283,10 @@ than plausible:
   (SHA-256 `c7ec2f1101f2d52552d0994d8b38250e6bf7ee666c5e5c61eda3a8ca2bc8b41e`,
   1,000 docs). The batch corpus is generated by
   `bench/gen_corpus.py` from a fixed seed; the driver re-generates
-  it and confirms the hash matches the file on disk. Each runner
+  it and confirms the hash matches the file on disk. The headline
+  tables use those two corpora only; the 500–50,000-char length
+  curve has its own seeded corpora and results file (see
+  "Document length"). Each runner
   additionally reports a digest of the parsed inputs it actually
   read — identical across languages in every mode.
 - **Config identity.** The (c) configuration is one fixed literal
@@ -258,6 +414,4 @@ sets:
 - Model-load times in this run (0.30 s / 0.18 s) benefited from a
   warm page cache after repeated loads in the same session; the
   first-pass sweep measured 0.73 s / 0.33 s. Treat load time as
-  "a few hundred ms", not a precise figure.- The fixture notes are short. On the 500-note clinical holdout
-  used in the Presidio comparison, Python's full neural pipeline
-  measured 8.4 ms/note p50 — document length dominates.
+  "a few hundred ms", not a precise figure.- The fixture notes are short — every headline number in this document is scoped to micro-text (~60 chars). The length curve is measured separately in "Document length"; on the 500-note clinical holdout used in the Presidio comparison, Python's full neural pipeline measured 8.4 ms/note p50 — document length dominates. That section also records two parity qualifications found at length: scored neural digests diverge between Python and Rust at tiers ≥ 2,000 chars (rounding-level; span sets identical — still standing), and one genuine chunk-boundary output divergence bisected at the 2,000 tier, fixed in the Rust decoder on 2026-10-29 (see Finding 2 there) — cross-SDK byte-parity is exact on the fixture corpus and, at length, exact for span sets with scored digests excepted per Finding 1.

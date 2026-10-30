@@ -123,3 +123,77 @@ fn neural_redactor_end_to_end() {
         "Pt Maria Santos DOB 03/14/1978 SSN 234-56-7890."
     );
 }
+
+
+/// Regression: chunk-boundary span scoring must match Python.
+///
+/// Python's `OnnxEngine.predict` shifts *every* tokenizer offset by
+/// the chunk offset — including the (0,0) offsets of the [CLS]/[SEP]
+/// specials, which become (coff, coff) — and its decode skips only
+/// offsets exactly equal to (0,0). For chunks after the first, the
+/// [CLS]-position prediction therefore participates in span building
+/// and score averaging. The Rust port originally stored (0,0) for
+/// those positions unshifted, so its decode always skipped them.
+///
+/// Doc 59 of bench/lengths/tier_2000.jsonl is the bisected case:
+/// chunk 2 starts at char 886, its [CLS] position predicts
+/// B-ADDRESS at 0.7096, and the "Apt. 36" span that opens there
+/// scores 0.9202 in Python (mean over the boundary token + three
+/// content tokens) vs 0.9903 in the old Rust decode (content tokens
+/// only). The score gap flipped the keep-highest-score merge
+/// downstream: Python redacted the full street address, Rust left
+/// it in the clear. Expected values below are Python
+/// `OnnxEngine.predict(note, threshold=0.0)` output, recorded
+/// 2026-10-30.
+#[test]
+fn chunk_boundary_span_scores_match_python() {
+    let Some(e) = engine() else { return };
+    let note: String = concat!(
+        "Badge EMP160053 documented the home visit for case 24881302 on 04/12/2026. Emily Johnson ",
+        "prefers portal messages; alternate contact Ahmed Johnson at 312-555-0135. Encouraged daily ",
+        "walking as tolerated and a follow-up call in one week. Hearing is grossly intact to ",
+        "conversational voice in a quiet room. Reviewed red-flag symptoms that should prompt an ",
+        "urgent call or visit. Badge EMP209478 documented the home visit for case 58479808 on ",
+        "05/22/2025. Billing flagged account 38011869: card 4111111111111111 declined, patient ",
+        "updated payment by phone. Call Jane Doe at 415-555-0132 about case 9918. Voicemail left ",
+        "for Ahmed Hall at 415-555-0153; will retry on 09/02/2023. Badge EMP411733 documented the ",
+        "home visit for case 41876952 on 12/12/2026. Email from David Harris ",
+        "(david.harris@example.com) asks whether the 12/03/2026 slot can move to the afternoon. ",
+        "Address on file: 77 Harbor Blvd, Apt. 36, San Diego, CA 92101. Phone 312-555-0121. Address ",
+        "on file: 77 Harbor Blvd, Apt. 34, San Diego, CA 92101. Phone 512-555-0167. Worker ",
+        "EMP390551 left a door hanger at 48 Elm Avenue on 12/25/2024 after no answer. Mental ",
+        "status: alert and oriented times three, affect appropriate, speech fluent. Discussed ",
+        "advance directive paperwork; the patient will discuss with family first. Mental status: ",
+        "alert and oriented times three, affect appropriate, speech fluent.\nThe patient reports ",
+        "sleeping six to seven hours nightly with one awakening.\nNo new medications were started ",
+        "today; the current list was reconciled with the patient. Please contact Susan Lewis at ",
+        "susan.lewis@example.org or 303-555-0111 to reschedule the appointment. The rash has faded ",
+        "considerably since the steroid cream was started last week. The rash has faded ",
+        "considerably since the steroid cream was started last week.\nRemittance for invoice ",
+        "84802073 charged to card 4111111111111111; receipt emailed to brian.miller@example.com. ",
+        "Mental status: alert and oriented times three, affect appropriate, speech fluent."
+    )
+    .to_string();
+    assert_eq!(note.len(), 1967, "embedded doc 59 drifted");
+    let got = spans(&e, &note);
+    let apt: Vec<_> = got
+        .iter()
+        .filter(|s| s.0 == 887 && s.1 == 894 && s.2 == "ADDRESS")
+        .collect();
+    assert_eq!(apt.len(), 1, "Apt. 36 span missing: {got:?}");
+    assert_eq!(apt[0].3, "Apt. 36");
+    assert!(
+        (apt[0].4 - 0.9202).abs() <= 0.0002,
+        "chunk-boundary span score: got {}, python 0.9202          (0.9903 = boundary token dropped from the mean)",
+        apt[0].4
+    );
+    // The full street-address span from the overlap region is also
+    // pinned: it is the span the merge must prefer downstream.
+    let full: Vec<_> = got
+        .iter()
+        .filter(|s| s.0 == 871 && s.1 == 894 && s.2 == "ADDRESS")
+        .collect();
+    assert_eq!(full.len(), 1, "full address span missing: {got:?}");
+    assert_eq!(full[0].3, "77 Harbor Blvd, Apt. 36");
+    assert!((full[0].4 - 0.9788).abs() <= 0.0002);
+}

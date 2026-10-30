@@ -1,0 +1,1987 @@
+{
+ "format": 1,
+ "kind": "length_curve",
+ "environment": {
+  "python": "Python 3.12.3",
+  "node": "v24.22.1",
+  "rustc": "",
+  "swift": "Swift version 6.1 (swift-6.1-RELEASE)",
+  "cpu": "AMD EPYC 9D25 126-Core Processor",
+  "cpus": 2,
+  "os": "Linux 7.0.0-39-generic",
+  "onnxruntime": "1.30 (python wheel; rust loads the same wheel's libonnxruntime.so via ort load-dynamic)",
+  "model": "phi-redact-v9-int8.onnx (v9 int8, 11.3 MB)"
+ },
+ "method": {
+  "tiers": "bench/gen_length_tiers.py (seeded, deterministic; each tier file regen-checked against a fresh generator run, SHA-256)",
+  "per_note": "3 rounds x tier docs, languages interleaved with rotating order per round; 2 warm-up passes in round 0 only; raw samples pooled and aggregated centrally (median + nearest-rank p95)",
+  "neural": "rounds per tier sized to the per-document cost (neural predict is seconds per document at the top tiers): neural {500: 2, 2000: 2, 10000: 1, 50000: 1}, neural-stages {500: 2, 2000: 2, 10000: 1, 50000: 1} (python + rust); same interleaving and stage buckets as the canonical sweep",
+  "digest_gate": "identical to the canonical sweep: a mode at a tier counts as compared only when all languages' input digests are equal and their output digests match"
+ },
+ "tiers": {
+  "500": {
+   "corpus": {
+    "path": "bench/lengths/tier_500.jsonl",
+    "target_chars": 500,
+    "count": 100,
+    "chars": {
+     "min": 485,
+     "median": 500,
+     "mean": 498,
+     "max": 515
+    },
+    "file_sha256": "bb360752d62bd0c429601887b5e6b22e1d4237d4383b68b383d39ff9c0841c5f",
+    "regen_sha256": "bb360752d62bd0c429601887b5e6b22e1d4237d4383b68b383d39ff9c0841c5f",
+    "regen_matches_file": true
+   },
+   "runs": [
+    {
+     "language": "python",
+     "mode": "scan",
+     "docs": 100,
+     "median_chars": 500,
+     "median_ms": 0.3642,
+     "p95_ms": 0.7403,
+     "samples": 300,
+     "ms_per_1000_chars": 0.7284,
+     "chars_per_sec": 1372872.0
+    },
+    {
+     "language": "rust",
+     "mode": "scan",
+     "docs": 100,
+     "median_chars": 500,
+     "median_ms": 0.0273,
+     "p95_ms": 0.0411,
+     "samples": 300,
+     "ms_per_1000_chars": 0.0546,
+     "chars_per_sec": 18315018.3
+    },
+    {
+     "language": "swift",
+     "mode": "scan",
+     "docs": 100,
+     "median_chars": 500,
+     "median_ms": 0.2298,
+     "p95_ms": 0.596,
+     "samples": 300,
+     "ms_per_1000_chars": 0.4596,
+     "chars_per_sec": 2175805.0
+    },
+    {
+     "language": "typescript",
+     "mode": "scan",
+     "docs": 100,
+     "median_chars": 500,
+     "median_ms": 0.036,
+     "p95_ms": 0.0662,
+     "samples": 300,
+     "ms_per_1000_chars": 0.072,
+     "chars_per_sec": 13888888.9
+    },
+    {
+     "language": "python",
+     "mode": "rules",
+     "docs": 100,
+     "median_chars": 500,
+     "median_ms": 0.3647,
+     "p95_ms": 0.4711,
+     "samples": 300,
+     "ms_per_1000_chars": 0.7294,
+     "chars_per_sec": 1370989.9
+    },
+    {
+     "language": "rust",
+     "mode": "rules",
+     "docs": 100,
+     "median_chars": 500,
+     "median_ms": 0.0343,
+     "p95_ms": 0.056,
+     "samples": 300,
+     "ms_per_1000_chars": 0.0686,
+     "chars_per_sec": 14577259.5
+    },
+    {
+     "language": "swift",
+     "mode": "rules",
+     "docs": 100,
+     "median_chars": 500,
+     "median_ms": 0.2563,
+     "p95_ms": 0.5255,
+     "samples": 300,
+     "ms_per_1000_chars": 0.5126,
+     "chars_per_sec": 1950838.9
+    },
+    {
+     "language": "typescript",
+     "mode": "rules",
+     "docs": 100,
+     "median_chars": 500,
+     "median_ms": 0.0546,
+     "p95_ms": 0.1957,
+     "samples": 300,
+     "ms_per_1000_chars": 0.1092,
+     "chars_per_sec": 9157509.2
+    },
+    {
+     "language": "python",
+     "mode": "features",
+     "docs": 100,
+     "median_chars": 500,
+     "median_ms": 0.4214,
+     "p95_ms": 0.8069,
+     "samples": 300,
+     "ms_per_1000_chars": 0.8428,
+     "chars_per_sec": 1186521.1
+    },
+    {
+     "language": "rust",
+     "mode": "features",
+     "docs": 100,
+     "median_chars": 500,
+     "median_ms": 0.05,
+     "p95_ms": 0.0842,
+     "samples": 300,
+     "ms_per_1000_chars": 0.1,
+     "chars_per_sec": 10000000.0
+    },
+    {
+     "language": "swift",
+     "mode": "features",
+     "docs": 100,
+     "median_chars": 500,
+     "median_ms": 0.6225,
+     "p95_ms": 1.3376,
+     "samples": 300,
+     "ms_per_1000_chars": 1.245,
+     "chars_per_sec": 803212.9
+    },
+    {
+     "language": "typescript",
+     "mode": "features",
+     "docs": 100,
+     "median_chars": 500,
+     "median_ms": 0.0966,
+     "p95_ms": 0.3713,
+     "samples": 300,
+     "ms_per_1000_chars": 0.1932,
+     "chars_per_sec": 5175983.4
+    },
+    {
+     "language": "python",
+     "mode": "neural",
+     "docs": 100,
+     "median_chars": 500,
+     "median_ms": 8.6016,
+     "p95_ms": 27.0259,
+     "samples": 200,
+     "ms_per_1000_chars": 17.2032,
+     "chars_per_sec": 58128.7
+    },
+    {
+     "language": "rust",
+     "mode": "neural",
+     "docs": 100,
+     "median_chars": 500,
+     "median_ms": 7.9637,
+     "p95_ms": 22.76,
+     "samples": 200,
+     "ms_per_1000_chars": 15.9274,
+     "chars_per_sec": 62784.9
+    }
+   ],
+   "digests": {
+    "features": {
+     "python": {
+      "digest": [
+       "fa219d001be90be470dbaa2bea61ff137855c042ffb9701b95a3334fe1f90e8e"
+      ],
+      "digest_noscore": [
+       "5dd531d33c84f84acbba79998d62374383b187527f8ec7a277192c0b2ca6e9a5"
+      ],
+      "input_digest": [
+       "a4a9c4e792de2838cedb68cdabc225917220c9021b85e9617e5b2c185341541f"
+      ]
+     },
+     "rust": {
+      "digest": [
+       "fa219d001be90be470dbaa2bea61ff137855c042ffb9701b95a3334fe1f90e8e"
+      ],
+      "digest_noscore": [
+       "5dd531d33c84f84acbba79998d62374383b187527f8ec7a277192c0b2ca6e9a5"
+      ],
+      "input_digest": [
+       "a4a9c4e792de2838cedb68cdabc225917220c9021b85e9617e5b2c185341541f"
+      ]
+     },
+     "swift": {
+      "digest": [
+       "fa219d001be90be470dbaa2bea61ff137855c042ffb9701b95a3334fe1f90e8e"
+      ],
+      "digest_noscore": [
+       "5dd531d33c84f84acbba79998d62374383b187527f8ec7a277192c0b2ca6e9a5"
+      ],
+      "input_digest": [
+       "a4a9c4e792de2838cedb68cdabc225917220c9021b85e9617e5b2c185341541f"
+      ]
+     },
+     "typescript": {
+      "digest": [
+       "fa219d001be90be470dbaa2bea61ff137855c042ffb9701b95a3334fe1f90e8e"
+      ],
+      "digest_noscore": [
+       "5dd531d33c84f84acbba79998d62374383b187527f8ec7a277192c0b2ca6e9a5"
+      ],
+      "input_digest": [
+       "a4a9c4e792de2838cedb68cdabc225917220c9021b85e9617e5b2c185341541f"
+      ]
+     },
+     "match": true,
+     "match_noscore": true,
+     "input_match": true
+    },
+    "neural": {
+     "python": {
+      "digest": [
+       "31356b169caf3e8ee1fc2260270a4bd6d6932cf15bb0e876fe4a4b15131fda83"
+      ],
+      "digest_noscore": [
+       "1d62e74eaae2357c30c7a5e283efa406748f31aa20472bc94e050dd2bd6d6eac"
+      ],
+      "input_digest": [
+       "a4a9c4e792de2838cedb68cdabc225917220c9021b85e9617e5b2c185341541f"
+      ]
+     },
+     "rust": {
+      "digest": [
+       "31356b169caf3e8ee1fc2260270a4bd6d6932cf15bb0e876fe4a4b15131fda83"
+      ],
+      "digest_noscore": [
+       "1d62e74eaae2357c30c7a5e283efa406748f31aa20472bc94e050dd2bd6d6eac"
+      ],
+      "input_digest": [
+       "a4a9c4e792de2838cedb68cdabc225917220c9021b85e9617e5b2c185341541f"
+      ]
+     },
+     "match": true,
+     "match_noscore": true,
+     "input_match": true
+    },
+    "neural-stages": {
+     "python": {
+      "digest": [
+       "1aef1c05d06087781ca49d4dcdc4c2beb7289f16e491a3c4df27db5ef7e23b6f"
+      ],
+      "digest_noscore": [
+       "f94db90d090268a6b4d95617e3de6eac9a517ef2a556a3042fc1828be612975a"
+      ],
+      "input_digest": [
+       "a4a9c4e792de2838cedb68cdabc225917220c9021b85e9617e5b2c185341541f"
+      ]
+     },
+     "rust": {
+      "digest": [
+       "1aef1c05d06087781ca49d4dcdc4c2beb7289f16e491a3c4df27db5ef7e23b6f"
+      ],
+      "digest_noscore": [
+       "f94db90d090268a6b4d95617e3de6eac9a517ef2a556a3042fc1828be612975a"
+      ],
+      "input_digest": [
+       "a4a9c4e792de2838cedb68cdabc225917220c9021b85e9617e5b2c185341541f"
+      ]
+     },
+     "match": true,
+     "match_noscore": true,
+     "input_match": true
+    },
+    "rules": {
+     "python": {
+      "digest": [
+       "75fc6a9a1a2dc1c4d04a12b5089bf533322d434a35b79babd930ca372d748cb9"
+      ],
+      "digest_noscore": [
+       "75fc6a9a1a2dc1c4d04a12b5089bf533322d434a35b79babd930ca372d748cb9"
+      ],
+      "input_digest": [
+       "a4a9c4e792de2838cedb68cdabc225917220c9021b85e9617e5b2c185341541f"
+      ]
+     },
+     "rust": {
+      "digest": [
+       "75fc6a9a1a2dc1c4d04a12b5089bf533322d434a35b79babd930ca372d748cb9"
+      ],
+      "digest_noscore": [
+       "75fc6a9a1a2dc1c4d04a12b5089bf533322d434a35b79babd930ca372d748cb9"
+      ],
+      "input_digest": [
+       "a4a9c4e792de2838cedb68cdabc225917220c9021b85e9617e5b2c185341541f"
+      ]
+     },
+     "swift": {
+      "digest": [
+       "75fc6a9a1a2dc1c4d04a12b5089bf533322d434a35b79babd930ca372d748cb9"
+      ],
+      "digest_noscore": [
+       "75fc6a9a1a2dc1c4d04a12b5089bf533322d434a35b79babd930ca372d748cb9"
+      ],
+      "input_digest": [
+       "a4a9c4e792de2838cedb68cdabc225917220c9021b85e9617e5b2c185341541f"
+      ]
+     },
+     "typescript": {
+      "digest": [
+       "75fc6a9a1a2dc1c4d04a12b5089bf533322d434a35b79babd930ca372d748cb9"
+      ],
+      "digest_noscore": [
+       "75fc6a9a1a2dc1c4d04a12b5089bf533322d434a35b79babd930ca372d748cb9"
+      ],
+      "input_digest": [
+       "a4a9c4e792de2838cedb68cdabc225917220c9021b85e9617e5b2c185341541f"
+      ]
+     },
+     "match": true,
+     "match_noscore": true,
+     "input_match": true
+    },
+    "scan": {
+     "python": {
+      "digest": [
+       "c0258b99fbedab0a7a5ebd160b6715b30fc985bf39552560b1d903c0610b8fb1"
+      ],
+      "digest_noscore": [
+       "c0258b99fbedab0a7a5ebd160b6715b30fc985bf39552560b1d903c0610b8fb1"
+      ],
+      "input_digest": [
+       "a4a9c4e792de2838cedb68cdabc225917220c9021b85e9617e5b2c185341541f"
+      ]
+     },
+     "rust": {
+      "digest": [
+       "c0258b99fbedab0a7a5ebd160b6715b30fc985bf39552560b1d903c0610b8fb1"
+      ],
+      "digest_noscore": [
+       "c0258b99fbedab0a7a5ebd160b6715b30fc985bf39552560b1d903c0610b8fb1"
+      ],
+      "input_digest": [
+       "a4a9c4e792de2838cedb68cdabc225917220c9021b85e9617e5b2c185341541f"
+      ]
+     },
+     "swift": {
+      "digest": [
+       "c0258b99fbedab0a7a5ebd160b6715b30fc985bf39552560b1d903c0610b8fb1"
+      ],
+      "digest_noscore": [
+       "c0258b99fbedab0a7a5ebd160b6715b30fc985bf39552560b1d903c0610b8fb1"
+      ],
+      "input_digest": [
+       "a4a9c4e792de2838cedb68cdabc225917220c9021b85e9617e5b2c185341541f"
+      ]
+     },
+     "typescript": {
+      "digest": [
+       "c0258b99fbedab0a7a5ebd160b6715b30fc985bf39552560b1d903c0610b8fb1"
+      ],
+      "digest_noscore": [
+       "c0258b99fbedab0a7a5ebd160b6715b30fc985bf39552560b1d903c0610b8fb1"
+      ],
+      "input_digest": [
+       "a4a9c4e792de2838cedb68cdabc225917220c9021b85e9617e5b2c185341541f"
+      ]
+     },
+     "match": true,
+     "match_noscore": true,
+     "input_match": true
+    }
+   },
+   "neural_stages": {
+    "python": {
+     "tokenize": {
+      "median_ms": 0.7153,
+      "p95_ms": 2.832,
+      "samples": 200
+     },
+     "inference": {
+      "median_ms": 7.0718,
+      "p95_ms": 22.193,
+      "samples": 200
+     },
+     "post": {
+      "median_ms": 0.4298,
+      "p95_ms": 2.5162,
+      "samples": 200
+     },
+     "total": {
+      "median_ms": 8.3932,
+      "p95_ms": 26.1658,
+      "samples": 200
+     }
+    },
+    "rust": {
+     "tokenize": {
+      "median_ms": 0.5712,
+      "p95_ms": 1.6687,
+      "samples": 200
+     },
+     "inference": {
+      "median_ms": 5.8422,
+      "p95_ms": 17.3986,
+      "samples": 200
+     },
+     "post": {
+      "median_ms": 0.2326,
+      "p95_ms": 0.3969,
+      "samples": 200
+     },
+     "total": {
+      "median_ms": 6.6616,
+      "p95_ms": 20.7253,
+      "samples": 200
+     }
+    }
+   },
+   "model_load_s": {
+    "python": 0.431,
+    "rust": 0.182
+   },
+   "per_rep": {
+    "scan": {
+     "python": [
+      0.3688,
+      0.3529,
+      0.3915
+     ],
+     "typescript": [
+      0.0421,
+      0.0335,
+      0.0363
+     ],
+     "rust": [
+      0.0271,
+      0.0283,
+      0.0272
+     ],
+     "swift": [
+      0.3033,
+      0.2211,
+      0.2174
+     ]
+    },
+    "rules": {
+     "python": [
+      0.3669,
+      0.3579,
+      0.3669
+     ],
+     "typescript": [
+      0.0461,
+      0.065,
+      0.0447
+     ],
+     "rust": [
+      0.0314,
+      0.0382,
+      0.0325
+     ],
+     "swift": [
+      0.2535,
+      0.2619,
+      0.2515
+     ]
+    },
+    "features": {
+     "python": [
+      0.4173,
+      0.4166,
+      0.4426
+     ],
+     "typescript": [
+      0.0875,
+      0.1061,
+      0.1008
+     ],
+     "rust": [
+      0.0505,
+      0.05,
+      0.0498
+     ],
+     "swift": [
+      0.6275,
+      0.6119,
+      0.624
+     ]
+    },
+    "neural": {
+     "python": [
+      7.5007,
+      9.0836
+     ],
+     "rust": [
+      7.72,
+      8.4156
+     ]
+    },
+    "neural-stages": {
+     "python": [
+      8.9531,
+      7.8994
+     ],
+     "rust": [
+      7.4479,
+      5.6991
+     ]
+    }
+   }
+  },
+  "2000": {
+   "corpus": {
+    "path": "bench/lengths/tier_2000.jsonl",
+    "target_chars": 2000,
+    "count": 100,
+    "chars": {
+     "min": 1944,
+     "median": 1991,
+     "mean": 1996,
+     "max": 2059
+    },
+    "file_sha256": "6a628757ba51a3a0e7fc6a0415366c0db476f10e5fc216515133d72c8f7d621f",
+    "regen_sha256": "6a628757ba51a3a0e7fc6a0415366c0db476f10e5fc216515133d72c8f7d621f",
+    "regen_matches_file": true
+   },
+   "runs": [
+    {
+     "language": "python",
+     "mode": "scan",
+     "docs": 100,
+     "median_chars": 1991,
+     "median_ms": 1.3352,
+     "p95_ms": 1.472,
+     "samples": 300,
+     "ms_per_1000_chars": 0.6706,
+     "chars_per_sec": 1491162.4
+    },
+    {
+     "language": "rust",
+     "mode": "scan",
+     "docs": 100,
+     "median_chars": 1991,
+     "median_ms": 0.1076,
+     "p95_ms": 0.1467,
+     "samples": 300,
+     "ms_per_1000_chars": 0.054,
+     "chars_per_sec": 18503717.5
+    },
+    {
+     "language": "swift",
+     "mode": "scan",
+     "docs": 100,
+     "median_chars": 1991,
+     "median_ms": 0.822,
+     "p95_ms": 1.0006,
+     "samples": 300,
+     "ms_per_1000_chars": 0.4129,
+     "chars_per_sec": 2422141.1
+    },
+    {
+     "language": "typescript",
+     "mode": "scan",
+     "docs": 100,
+     "median_chars": 1991,
+     "median_ms": 0.1062,
+     "p95_ms": 0.1434,
+     "samples": 300,
+     "ms_per_1000_chars": 0.0533,
+     "chars_per_sec": 18747646.0
+    },
+    {
+     "language": "python",
+     "mode": "rules",
+     "docs": 100,
+     "median_chars": 1991,
+     "median_ms": 1.4251,
+     "p95_ms": 1.5764,
+     "samples": 300,
+     "ms_per_1000_chars": 0.7158,
+     "chars_per_sec": 1397094.9
+    },
+    {
+     "language": "rust",
+     "mode": "rules",
+     "docs": 100,
+     "median_chars": 1991,
+     "median_ms": 0.1293,
+     "p95_ms": 0.2482,
+     "samples": 300,
+     "ms_per_1000_chars": 0.0649,
+     "chars_per_sec": 15398298.5
+    },
+    {
+     "language": "swift",
+     "mode": "rules",
+     "docs": 100,
+     "median_chars": 1991,
+     "median_ms": 0.9474,
+     "p95_ms": 1.1104,
+     "samples": 300,
+     "ms_per_1000_chars": 0.4758,
+     "chars_per_sec": 2101541.1
+    },
+    {
+     "language": "typescript",
+     "mode": "rules",
+     "docs": 100,
+     "median_chars": 1991,
+     "median_ms": 0.13,
+     "p95_ms": 0.266,
+     "samples": 300,
+     "ms_per_1000_chars": 0.0653,
+     "chars_per_sec": 15315384.6
+    },
+    {
+     "language": "python",
+     "mode": "features",
+     "docs": 100,
+     "median_chars": 1991,
+     "median_ms": 1.6099,
+     "p95_ms": 1.7784,
+     "samples": 300,
+     "ms_per_1000_chars": 0.8086,
+     "chars_per_sec": 1236722.8
+    },
+    {
+     "language": "rust",
+     "mode": "features",
+     "docs": 100,
+     "median_chars": 1991,
+     "median_ms": 0.195,
+     "p95_ms": 0.2506,
+     "samples": 300,
+     "ms_per_1000_chars": 0.0979,
+     "chars_per_sec": 10210256.4
+    },
+    {
+     "language": "swift",
+     "mode": "features",
+     "docs": 100,
+     "median_chars": 1991,
+     "median_ms": 2.5749,
+     "p95_ms": 4.5933,
+     "samples": 300,
+     "ms_per_1000_chars": 1.2933,
+     "chars_per_sec": 773233.9
+    },
+    {
+     "language": "typescript",
+     "mode": "features",
+     "docs": 100,
+     "median_chars": 1991,
+     "median_ms": 0.2833,
+     "p95_ms": 0.5037,
+     "samples": 300,
+     "ms_per_1000_chars": 0.1423,
+     "chars_per_sec": 7027885.6
+    },
+    {
+     "language": "python",
+     "mode": "neural",
+     "docs": 100,
+     "median_chars": 1991,
+     "median_ms": 47.8787,
+     "p95_ms": 103.3105,
+     "samples": 200,
+     "ms_per_1000_chars": 24.0476,
+     "chars_per_sec": 41584.3
+    },
+    {
+     "language": "rust",
+     "mode": "neural",
+     "docs": 100,
+     "median_chars": 1991,
+     "median_ms": 38.9061,
+     "p95_ms": 81.2814,
+     "samples": 200,
+     "ms_per_1000_chars": 19.541,
+     "chars_per_sec": 51174.5
+    }
+   ],
+   "digests": {
+    "features": {
+     "python": {
+      "digest": [
+       "f3f313c589994ec5a69bcd82f76764cd8080dd36d424eb32365412f726466275"
+      ],
+      "digest_noscore": [
+       "8f866fcbaa3704ea47aa64389205e0deb08f1781e94e268cfa5d2724bab8523f"
+      ],
+      "input_digest": [
+       "1acbcd807fc987e10d0804b3fa06244e00e540cf595d659992ae703f685792de"
+      ]
+     },
+     "rust": {
+      "digest": [
+       "f3f313c589994ec5a69bcd82f76764cd8080dd36d424eb32365412f726466275"
+      ],
+      "digest_noscore": [
+       "8f866fcbaa3704ea47aa64389205e0deb08f1781e94e268cfa5d2724bab8523f"
+      ],
+      "input_digest": [
+       "1acbcd807fc987e10d0804b3fa06244e00e540cf595d659992ae703f685792de"
+      ]
+     },
+     "swift": {
+      "digest": [
+       "f3f313c589994ec5a69bcd82f76764cd8080dd36d424eb32365412f726466275"
+      ],
+      "digest_noscore": [
+       "8f866fcbaa3704ea47aa64389205e0deb08f1781e94e268cfa5d2724bab8523f"
+      ],
+      "input_digest": [
+       "1acbcd807fc987e10d0804b3fa06244e00e540cf595d659992ae703f685792de"
+      ]
+     },
+     "typescript": {
+      "digest": [
+       "f3f313c589994ec5a69bcd82f76764cd8080dd36d424eb32365412f726466275"
+      ],
+      "digest_noscore": [
+       "8f866fcbaa3704ea47aa64389205e0deb08f1781e94e268cfa5d2724bab8523f"
+      ],
+      "input_digest": [
+       "1acbcd807fc987e10d0804b3fa06244e00e540cf595d659992ae703f685792de"
+      ]
+     },
+     "match": true,
+     "match_noscore": true,
+     "input_match": true
+    },
+    "neural": {
+     "python": {
+      "digest": [
+       "cd9a2914c66bc6f729287e90f4653d1a97d0d7d8f6002b20cf939db25870748f"
+      ],
+      "digest_noscore": [
+       "28e23403998fb547935a4db0d7c3c67c647f4c83f1ee4cec7f8e9bf12601b126"
+      ],
+      "input_digest": [
+       "1acbcd807fc987e10d0804b3fa06244e00e540cf595d659992ae703f685792de"
+      ]
+     },
+     "rust": {
+      "digest": [
+       "92c1850a7d281078b483a3b26d464ee446f2fb9818b210ca6d26fb96754e4bef"
+      ],
+      "digest_noscore": [
+       "28e23403998fb547935a4db0d7c3c67c647f4c83f1ee4cec7f8e9bf12601b126"
+      ],
+      "input_digest": [
+       "1acbcd807fc987e10d0804b3fa06244e00e540cf595d659992ae703f685792de"
+      ]
+     },
+     "match": false,
+     "match_noscore": true,
+     "input_match": true
+    },
+    "neural-stages": {
+     "python": {
+      "digest": [
+       "4194fde8b50169ff0e3a3419bd3d0f6849e2abcf61f85f6bb0333c05836dc8f4"
+      ],
+      "digest_noscore": [
+       "15f0a14afab27eca873bca23ccb6d342a81ce8998ebc284590f052b8d8d044c1"
+      ],
+      "input_digest": [
+       "1acbcd807fc987e10d0804b3fa06244e00e540cf595d659992ae703f685792de"
+      ]
+     },
+     "rust": {
+      "digest": [
+       "bd9a6e3d31a060a59399eb9c0b7eea14698ff91d4534e0f25a953c74f56529e7"
+      ],
+      "digest_noscore": [
+       "15f0a14afab27eca873bca23ccb6d342a81ce8998ebc284590f052b8d8d044c1"
+      ],
+      "input_digest": [
+       "1acbcd807fc987e10d0804b3fa06244e00e540cf595d659992ae703f685792de"
+      ]
+     },
+     "match": false,
+     "match_noscore": true,
+     "input_match": true
+    },
+    "rules": {
+     "python": {
+      "digest": [
+       "6141b43572bfdca3b4e0e18af0ded2d0a3d33fa3d0fb92dc2eb3f914f188a3db"
+      ],
+      "digest_noscore": [
+       "6141b43572bfdca3b4e0e18af0ded2d0a3d33fa3d0fb92dc2eb3f914f188a3db"
+      ],
+      "input_digest": [
+       "1acbcd807fc987e10d0804b3fa06244e00e540cf595d659992ae703f685792de"
+      ]
+     },
+     "rust": {
+      "digest": [
+       "6141b43572bfdca3b4e0e18af0ded2d0a3d33fa3d0fb92dc2eb3f914f188a3db"
+      ],
+      "digest_noscore": [
+       "6141b43572bfdca3b4e0e18af0ded2d0a3d33fa3d0fb92dc2eb3f914f188a3db"
+      ],
+      "input_digest": [
+       "1acbcd807fc987e10d0804b3fa06244e00e540cf595d659992ae703f685792de"
+      ]
+     },
+     "swift": {
+      "digest": [
+       "6141b43572bfdca3b4e0e18af0ded2d0a3d33fa3d0fb92dc2eb3f914f188a3db"
+      ],
+      "digest_noscore": [
+       "6141b43572bfdca3b4e0e18af0ded2d0a3d33fa3d0fb92dc2eb3f914f188a3db"
+      ],
+      "input_digest": [
+       "1acbcd807fc987e10d0804b3fa06244e00e540cf595d659992ae703f685792de"
+      ]
+     },
+     "typescript": {
+      "digest": [
+       "6141b43572bfdca3b4e0e18af0ded2d0a3d33fa3d0fb92dc2eb3f914f188a3db"
+      ],
+      "digest_noscore": [
+       "6141b43572bfdca3b4e0e18af0ded2d0a3d33fa3d0fb92dc2eb3f914f188a3db"
+      ],
+      "input_digest": [
+       "1acbcd807fc987e10d0804b3fa06244e00e540cf595d659992ae703f685792de"
+      ]
+     },
+     "match": true,
+     "match_noscore": true,
+     "input_match": true
+    },
+    "scan": {
+     "python": {
+      "digest": [
+       "7dfb6c8a5dbf0ee399094cdc4e11a19282bb8de32fb8987cdeb701306e939fa9"
+      ],
+      "digest_noscore": [
+       "7dfb6c8a5dbf0ee399094cdc4e11a19282bb8de32fb8987cdeb701306e939fa9"
+      ],
+      "input_digest": [
+       "1acbcd807fc987e10d0804b3fa06244e00e540cf595d659992ae703f685792de"
+      ]
+     },
+     "rust": {
+      "digest": [
+       "7dfb6c8a5dbf0ee399094cdc4e11a19282bb8de32fb8987cdeb701306e939fa9"
+      ],
+      "digest_noscore": [
+       "7dfb6c8a5dbf0ee399094cdc4e11a19282bb8de32fb8987cdeb701306e939fa9"
+      ],
+      "input_digest": [
+       "1acbcd807fc987e10d0804b3fa06244e00e540cf595d659992ae703f685792de"
+      ]
+     },
+     "swift": {
+      "digest": [
+       "7dfb6c8a5dbf0ee399094cdc4e11a19282bb8de32fb8987cdeb701306e939fa9"
+      ],
+      "digest_noscore": [
+       "7dfb6c8a5dbf0ee399094cdc4e11a19282bb8de32fb8987cdeb701306e939fa9"
+      ],
+      "input_digest": [
+       "1acbcd807fc987e10d0804b3fa06244e00e540cf595d659992ae703f685792de"
+      ]
+     },
+     "typescript": {
+      "digest": [
+       "7dfb6c8a5dbf0ee399094cdc4e11a19282bb8de32fb8987cdeb701306e939fa9"
+      ],
+      "digest_noscore": [
+       "7dfb6c8a5dbf0ee399094cdc4e11a19282bb8de32fb8987cdeb701306e939fa9"
+      ],
+      "input_digest": [
+       "1acbcd807fc987e10d0804b3fa06244e00e540cf595d659992ae703f685792de"
+      ]
+     },
+     "match": true,
+     "match_noscore": true,
+     "input_match": true
+    }
+   },
+   "neural_stages": {
+    "python": {
+     "tokenize": {
+      "median_ms": 4.108,
+      "p95_ms": 13.801,
+      "samples": 200
+     },
+     "inference": {
+      "median_ms": 27.3856,
+      "p95_ms": 75.6727,
+      "samples": 200
+     },
+     "post": {
+      "median_ms": 1.733,
+      "p95_ms": 5.1447,
+      "samples": 200
+     },
+     "total": {
+      "median_ms": 44.8782,
+      "p95_ms": 92.866,
+      "samples": 200
+     }
+    },
+    "rust": {
+     "tokenize": {
+      "median_ms": 3.6514,
+      "p95_ms": 13.9993,
+      "samples": 200
+     },
+     "inference": {
+      "median_ms": 32.137,
+      "p95_ms": 75.5072,
+      "samples": 200
+     },
+     "post": {
+      "median_ms": 0.9592,
+      "p95_ms": 4.2067,
+      "samples": 200
+     },
+     "total": {
+      "median_ms": 44.6133,
+      "p95_ms": 89.6172,
+      "samples": 200
+     }
+    }
+   },
+   "model_load_s": {
+    "python": 0.461,
+    "rust": 0.181
+   },
+   "per_rep": {
+    "scan": {
+     "python": [
+      1.3422,
+      1.3156,
+      1.3437
+     ],
+     "typescript": [
+      0.1021,
+      0.1077,
+      0.1073
+     ],
+     "rust": [
+      0.1072,
+      0.1066,
+      0.1099
+     ],
+     "swift": [
+      0.8038,
+      0.8475,
+      0.8215
+     ]
+    },
+    "rules": {
+     "python": [
+      1.4384,
+      1.4157,
+      1.4103
+     ],
+     "typescript": [
+      0.1276,
+      0.1269,
+      0.1371
+     ],
+     "rust": [
+      0.1273,
+      0.133,
+      0.1275
+     ],
+     "swift": [
+      0.9187,
+      0.9865,
+      0.9421
+     ]
+    },
+    "features": {
+     "python": [
+      1.6071,
+      1.5963,
+      1.6222
+     ],
+     "typescript": [
+      0.2721,
+      0.2848,
+      0.2949
+     ],
+     "rust": [
+      0.191,
+      0.1986,
+      0.1941
+     ],
+     "swift": [
+      2.5375,
+      2.6647,
+      2.4632
+     ]
+    },
+    "neural": {
+     "python": [
+      47.4488,
+      49.4551
+     ],
+     "rust": [
+      31.2478,
+      43.9676
+     ]
+    },
+    "neural-stages": {
+     "python": [
+      33.1957,
+      49.1947
+     ],
+     "rust": [
+      36.0513,
+      45.5177
+     ]
+    }
+   }
+  },
+  "10000": {
+   "corpus": {
+    "path": "bench/lengths/tier_10000.jsonl",
+    "target_chars": 10000,
+    "count": 50,
+    "chars": {
+     "min": 9899,
+     "median": 9984,
+     "mean": 9990,
+     "max": 10051
+    },
+    "file_sha256": "15098851c2621609b33022ed71c993f6996d8672fe1fbb16f4318953d0aac979",
+    "regen_sha256": "15098851c2621609b33022ed71c993f6996d8672fe1fbb16f4318953d0aac979",
+    "regen_matches_file": true
+   },
+   "runs": [
+    {
+     "language": "python",
+     "mode": "scan",
+     "docs": 50,
+     "median_chars": 9984,
+     "median_ms": 6.9908,
+     "p95_ms": 9.6671,
+     "samples": 150,
+     "ms_per_1000_chars": 0.7002,
+     "chars_per_sec": 1428162.7
+    },
+    {
+     "language": "rust",
+     "mode": "scan",
+     "docs": 50,
+     "median_chars": 9984,
+     "median_ms": 0.551,
+     "p95_ms": 1.6339,
+     "samples": 150,
+     "ms_per_1000_chars": 0.0552,
+     "chars_per_sec": 18119782.2
+    },
+    {
+     "language": "swift",
+     "mode": "scan",
+     "docs": 50,
+     "median_chars": 9984,
+     "median_ms": 3.9362,
+     "p95_ms": 4.9584,
+     "samples": 150,
+     "ms_per_1000_chars": 0.3943,
+     "chars_per_sec": 2536456.5
+    },
+    {
+     "language": "typescript",
+     "mode": "scan",
+     "docs": 50,
+     "median_chars": 9984,
+     "median_ms": 0.5525,
+     "p95_ms": 2.8086,
+     "samples": 150,
+     "ms_per_1000_chars": 0.0553,
+     "chars_per_sec": 18070588.2
+    },
+    {
+     "language": "python",
+     "mode": "rules",
+     "docs": 50,
+     "median_chars": 9984,
+     "median_ms": 7.3535,
+     "p95_ms": 12.465,
+     "samples": 150,
+     "ms_per_1000_chars": 0.7365,
+     "chars_per_sec": 1357720.8
+    },
+    {
+     "language": "rust",
+     "mode": "rules",
+     "docs": 50,
+     "median_chars": 9984,
+     "median_ms": 0.6411,
+     "p95_ms": 0.7474,
+     "samples": 150,
+     "ms_per_1000_chars": 0.0642,
+     "chars_per_sec": 15573233.5
+    },
+    {
+     "language": "swift",
+     "mode": "rules",
+     "docs": 50,
+     "median_chars": 9984,
+     "median_ms": 4.5751,
+     "p95_ms": 9.2619,
+     "samples": 150,
+     "ms_per_1000_chars": 0.4582,
+     "chars_per_sec": 2182247.4
+    },
+    {
+     "language": "typescript",
+     "mode": "rules",
+     "docs": 50,
+     "median_chars": 9984,
+     "median_ms": 0.7289,
+     "p95_ms": 7.7733,
+     "samples": 150,
+     "ms_per_1000_chars": 0.073,
+     "chars_per_sec": 13697352.2
+    },
+    {
+     "language": "python",
+     "mode": "features",
+     "docs": 50,
+     "median_chars": 9984,
+     "median_ms": 8.7968,
+     "p95_ms": 17.3672,
+     "samples": 150,
+     "ms_per_1000_chars": 0.8811,
+     "chars_per_sec": 1134958.2
+    },
+    {
+     "language": "rust",
+     "mode": "features",
+     "docs": 50,
+     "median_chars": 9984,
+     "median_ms": 0.9787,
+     "p95_ms": 1.2903,
+     "samples": 150,
+     "ms_per_1000_chars": 0.098,
+     "chars_per_sec": 10201287.4
+    },
+    {
+     "language": "swift",
+     "mode": "features",
+     "docs": 50,
+     "median_chars": 9984,
+     "median_ms": 12.2237,
+     "p95_ms": 17.5966,
+     "samples": 150,
+     "ms_per_1000_chars": 1.2243,
+     "chars_per_sec": 816774.0
+    },
+    {
+     "language": "typescript",
+     "mode": "features",
+     "docs": 50,
+     "median_chars": 9984,
+     "median_ms": 1.6976,
+     "p95_ms": 2.4448,
+     "samples": 150,
+     "ms_per_1000_chars": 0.17,
+     "chars_per_sec": 5881244.1
+    },
+    {
+     "language": "python",
+     "mode": "neural",
+     "docs": 50,
+     "median_chars": 9984,
+     "median_ms": 240.7388,
+     "p95_ms": 365.2466,
+     "samples": 50,
+     "ms_per_1000_chars": 24.1125,
+     "chars_per_sec": 41472.3
+    },
+    {
+     "language": "rust",
+     "mode": "neural",
+     "docs": 50,
+     "median_chars": 9984,
+     "median_ms": 223.9112,
+     "p95_ms": 340.1968,
+     "samples": 50,
+     "ms_per_1000_chars": 22.427,
+     "chars_per_sec": 44589.1
+    }
+   ],
+   "digests": {
+    "features": {
+     "python": {
+      "digest": [
+       "5c392dcf4ae4cf1654022b8b1536a0df6d04d59c1115094c3bf16052ec449fe2"
+      ],
+      "digest_noscore": [
+       "1090fdb8ba20fac0ec89787ff617df8ea645b749af422a88086491a8448f94fb"
+      ],
+      "input_digest": [
+       "58fe8b5a1de6ee37ad66ee3956cf55671a31317ba9d28026fa740c91de9b5834"
+      ]
+     },
+     "rust": {
+      "digest": [
+       "5c392dcf4ae4cf1654022b8b1536a0df6d04d59c1115094c3bf16052ec449fe2"
+      ],
+      "digest_noscore": [
+       "1090fdb8ba20fac0ec89787ff617df8ea645b749af422a88086491a8448f94fb"
+      ],
+      "input_digest": [
+       "58fe8b5a1de6ee37ad66ee3956cf55671a31317ba9d28026fa740c91de9b5834"
+      ]
+     },
+     "swift": {
+      "digest": [
+       "5c392dcf4ae4cf1654022b8b1536a0df6d04d59c1115094c3bf16052ec449fe2"
+      ],
+      "digest_noscore": [
+       "1090fdb8ba20fac0ec89787ff617df8ea645b749af422a88086491a8448f94fb"
+      ],
+      "input_digest": [
+       "58fe8b5a1de6ee37ad66ee3956cf55671a31317ba9d28026fa740c91de9b5834"
+      ]
+     },
+     "typescript": {
+      "digest": [
+       "5c392dcf4ae4cf1654022b8b1536a0df6d04d59c1115094c3bf16052ec449fe2"
+      ],
+      "digest_noscore": [
+       "1090fdb8ba20fac0ec89787ff617df8ea645b749af422a88086491a8448f94fb"
+      ],
+      "input_digest": [
+       "58fe8b5a1de6ee37ad66ee3956cf55671a31317ba9d28026fa740c91de9b5834"
+      ]
+     },
+     "match": true,
+     "match_noscore": true,
+     "input_match": true
+    },
+    "neural": {
+     "python": {
+      "digest": [
+       "e76727de54b026d6dfe0ee58d518dbd66b2d16c0b1fe84fec725d778ab28cc0c"
+      ],
+      "digest_noscore": [
+       "a8837a927e399d94c59567f75b5eb872052f7fd4feb0ea4cdd021b208bc492db"
+      ],
+      "input_digest": [
+       "58fe8b5a1de6ee37ad66ee3956cf55671a31317ba9d28026fa740c91de9b5834"
+      ]
+     },
+     "rust": {
+      "digest": [
+       "e9d7bda817ad3cd86561bba7782cc3b9b45f28edecc151e4a57fe0ebebbcbd6f"
+      ],
+      "digest_noscore": [
+       "a8837a927e399d94c59567f75b5eb872052f7fd4feb0ea4cdd021b208bc492db"
+      ],
+      "input_digest": [
+       "58fe8b5a1de6ee37ad66ee3956cf55671a31317ba9d28026fa740c91de9b5834"
+      ]
+     },
+     "match": false,
+     "match_noscore": true,
+     "input_match": true
+    },
+    "neural-stages": {
+     "python": {
+      "digest": [
+       "49e28da8031b50b0408437b45278973357fcf96ad3fa1132122bd6bcc76f2c98"
+      ],
+      "digest_noscore": [
+       "ae2db54cea4cb696fd5cd2456eec5bbeec0b118615737652a1aeff41847e45cd"
+      ],
+      "input_digest": [
+       "58fe8b5a1de6ee37ad66ee3956cf55671a31317ba9d28026fa740c91de9b5834"
+      ]
+     },
+     "rust": {
+      "digest": [
+       "9285de8dda5c0aeb898d41bff382edeb82769d8c413c578b2cfd1fe0a00c99e7"
+      ],
+      "digest_noscore": [
+       "ae2db54cea4cb696fd5cd2456eec5bbeec0b118615737652a1aeff41847e45cd"
+      ],
+      "input_digest": [
+       "58fe8b5a1de6ee37ad66ee3956cf55671a31317ba9d28026fa740c91de9b5834"
+      ]
+     },
+     "match": false,
+     "match_noscore": true,
+     "input_match": true
+    },
+    "rules": {
+     "python": {
+      "digest": [
+       "a61e1da3dfa83ef8c90a84b72fd5edbe3b7e69d44398326960d9334f720c3993"
+      ],
+      "digest_noscore": [
+       "a61e1da3dfa83ef8c90a84b72fd5edbe3b7e69d44398326960d9334f720c3993"
+      ],
+      "input_digest": [
+       "58fe8b5a1de6ee37ad66ee3956cf55671a31317ba9d28026fa740c91de9b5834"
+      ]
+     },
+     "rust": {
+      "digest": [
+       "a61e1da3dfa83ef8c90a84b72fd5edbe3b7e69d44398326960d9334f720c3993"
+      ],
+      "digest_noscore": [
+       "a61e1da3dfa83ef8c90a84b72fd5edbe3b7e69d44398326960d9334f720c3993"
+      ],
+      "input_digest": [
+       "58fe8b5a1de6ee37ad66ee3956cf55671a31317ba9d28026fa740c91de9b5834"
+      ]
+     },
+     "swift": {
+      "digest": [
+       "a61e1da3dfa83ef8c90a84b72fd5edbe3b7e69d44398326960d9334f720c3993"
+      ],
+      "digest_noscore": [
+       "a61e1da3dfa83ef8c90a84b72fd5edbe3b7e69d44398326960d9334f720c3993"
+      ],
+      "input_digest": [
+       "58fe8b5a1de6ee37ad66ee3956cf55671a31317ba9d28026fa740c91de9b5834"
+      ]
+     },
+     "typescript": {
+      "digest": [
+       "a61e1da3dfa83ef8c90a84b72fd5edbe3b7e69d44398326960d9334f720c3993"
+      ],
+      "digest_noscore": [
+       "a61e1da3dfa83ef8c90a84b72fd5edbe3b7e69d44398326960d9334f720c3993"
+      ],
+      "input_digest": [
+       "58fe8b5a1de6ee37ad66ee3956cf55671a31317ba9d28026fa740c91de9b5834"
+      ]
+     },
+     "match": true,
+     "match_noscore": true,
+     "input_match": true
+    },
+    "scan": {
+     "python": {
+      "digest": [
+       "0457b028eb12729c6429f11ffc292ed0b32cc1393d1c4e283618b64d7d3bf3b3"
+      ],
+      "digest_noscore": [
+       "0457b028eb12729c6429f11ffc292ed0b32cc1393d1c4e283618b64d7d3bf3b3"
+      ],
+      "input_digest": [
+       "58fe8b5a1de6ee37ad66ee3956cf55671a31317ba9d28026fa740c91de9b5834"
+      ]
+     },
+     "rust": {
+      "digest": [
+       "0457b028eb12729c6429f11ffc292ed0b32cc1393d1c4e283618b64d7d3bf3b3"
+      ],
+      "digest_noscore": [
+       "0457b028eb12729c6429f11ffc292ed0b32cc1393d1c4e283618b64d7d3bf3b3"
+      ],
+      "input_digest": [
+       "58fe8b5a1de6ee37ad66ee3956cf55671a31317ba9d28026fa740c91de9b5834"
+      ]
+     },
+     "swift": {
+      "digest": [
+       "0457b028eb12729c6429f11ffc292ed0b32cc1393d1c4e283618b64d7d3bf3b3"
+      ],
+      "digest_noscore": [
+       "0457b028eb12729c6429f11ffc292ed0b32cc1393d1c4e283618b64d7d3bf3b3"
+      ],
+      "input_digest": [
+       "58fe8b5a1de6ee37ad66ee3956cf55671a31317ba9d28026fa740c91de9b5834"
+      ]
+     },
+     "typescript": {
+      "digest": [
+       "0457b028eb12729c6429f11ffc292ed0b32cc1393d1c4e283618b64d7d3bf3b3"
+      ],
+      "digest_noscore": [
+       "0457b028eb12729c6429f11ffc292ed0b32cc1393d1c4e283618b64d7d3bf3b3"
+      ],
+      "input_digest": [
+       "58fe8b5a1de6ee37ad66ee3956cf55671a31317ba9d28026fa740c91de9b5834"
+      ]
+     },
+     "match": true,
+     "match_noscore": true,
+     "input_match": true
+    }
+   },
+   "neural_stages": {
+    "python": {
+     "tokenize": {
+      "median_ms": 40.333,
+      "p95_ms": 87.5219,
+      "samples": 50
+     },
+     "inference": {
+      "median_ms": 217.7383,
+      "p95_ms": 380.5539,
+      "samples": 50
+     },
+     "post": {
+      "median_ms": 11.616,
+      "p95_ms": 34.3864,
+      "samples": 50
+     },
+     "total": {
+      "median_ms": 278.0188,
+      "p95_ms": 540.1585,
+      "samples": 50
+     }
+    },
+    "rust": {
+     "tokenize": {
+      "median_ms": 43.4458,
+      "p95_ms": 62.2057,
+      "samples": 50
+     },
+     "inference": {
+      "median_ms": 182.5103,
+      "p95_ms": 284.9838,
+      "samples": 50
+     },
+     "post": {
+      "median_ms": 5.6613,
+      "p95_ms": 7.6672,
+      "samples": 50
+     },
+     "total": {
+      "median_ms": 225.5643,
+      "p95_ms": 332.6501,
+      "samples": 50
+     }
+    }
+   },
+   "model_load_s": {
+    "python": 0.56,
+    "rust": 0.261
+   },
+   "per_rep": {
+    "scan": {
+     "python": [
+      6.9933,
+      6.8781,
+      7.5042
+     ],
+     "typescript": [
+      0.9053,
+      0.5214,
+      0.5216
+     ],
+     "rust": [
+      0.576,
+      0.5504,
+      0.544
+     ],
+     "swift": [
+      3.9245,
+      4.032,
+      3.8933
+     ]
+    },
+    "rules": {
+     "python": [
+      7.2336,
+      8.0398,
+      7.3167
+     ],
+     "typescript": [
+      0.9846,
+      0.6876,
+      0.7252
+     ],
+     "rust": [
+      0.6394,
+      0.6484,
+      0.6366
+     ],
+     "swift": [
+      4.6189,
+      4.5527,
+      4.5586
+     ]
+    },
+    "features": {
+     "python": [
+      8.7104,
+      8.4995,
+      10.1189
+     ],
+     "typescript": [
+      1.7483,
+      1.6869,
+      1.6413
+     ],
+     "rust": [
+      0.9577,
+      1.0471,
+      0.9548
+     ],
+     "swift": [
+      11.9989,
+      12.1076,
+      12.9525
+     ]
+    },
+    "neural": {
+     "python": [
+      240.7388
+     ],
+     "rust": [
+      223.9112
+     ]
+    },
+    "neural-stages": {
+     "python": [
+      278.0188
+     ],
+     "rust": [
+      225.5643
+     ]
+    }
+   }
+  },
+  "50000": {
+   "corpus": {
+    "path": "bench/lengths/tier_50000.jsonl",
+    "target_chars": 50000,
+    "count": 20,
+    "chars": {
+     "min": 49939,
+     "median": 49985,
+     "mean": 49988,
+     "max": 50075
+    },
+    "file_sha256": "65474993b31dad0ba43918bc020797481f9d9a39102360576a7a5e0b5ba1833a",
+    "regen_sha256": "65474993b31dad0ba43918bc020797481f9d9a39102360576a7a5e0b5ba1833a",
+    "regen_matches_file": true
+   },
+   "runs": [
+    {
+     "language": "python",
+     "mode": "scan",
+     "docs": 20,
+     "median_chars": 49985,
+     "median_ms": 43.4778,
+     "p95_ms": 49.0849,
+     "samples": 60,
+     "ms_per_1000_chars": 0.8698,
+     "chars_per_sec": 1149667.2
+    },
+    {
+     "language": "rust",
+     "mode": "scan",
+     "docs": 20,
+     "median_chars": 49985,
+     "median_ms": 2.9231,
+     "p95_ms": 3.162,
+     "samples": 60,
+     "ms_per_1000_chars": 0.0585,
+     "chars_per_sec": 17099996.6
+    },
+    {
+     "language": "swift",
+     "mode": "scan",
+     "docs": 20,
+     "median_chars": 49985,
+     "median_ms": 20.2452,
+     "p95_ms": 22.0968,
+     "samples": 60,
+     "ms_per_1000_chars": 0.405,
+     "chars_per_sec": 2468980.3
+    },
+    {
+     "language": "typescript",
+     "mode": "scan",
+     "docs": 20,
+     "median_chars": 49985,
+     "median_ms": 5.0354,
+     "p95_ms": 12.4788,
+     "samples": 60,
+     "ms_per_1000_chars": 0.1007,
+     "chars_per_sec": 9926718.8
+    },
+    {
+     "language": "python",
+     "mode": "rules",
+     "docs": 20,
+     "median_chars": 49985,
+     "median_ms": 46.4918,
+     "p95_ms": 49.1694,
+     "samples": 60,
+     "ms_per_1000_chars": 0.9301,
+     "chars_per_sec": 1075135.8
+    },
+    {
+     "language": "rust",
+     "mode": "rules",
+     "docs": 20,
+     "median_chars": 49985,
+     "median_ms": 3.5454,
+     "p95_ms": 3.7156,
+     "samples": 60,
+     "ms_per_1000_chars": 0.0709,
+     "chars_per_sec": 14098550.2
+    },
+    {
+     "language": "swift",
+     "mode": "rules",
+     "docs": 20,
+     "median_chars": 49985,
+     "median_ms": 23.0605,
+     "p95_ms": 25.4996,
+     "samples": 60,
+     "ms_per_1000_chars": 0.4613,
+     "chars_per_sec": 2167559.2
+    },
+    {
+     "language": "typescript",
+     "mode": "rules",
+     "docs": 20,
+     "median_chars": 49985,
+     "median_ms": 7.0773,
+     "p95_ms": 8.3187,
+     "samples": 60,
+     "ms_per_1000_chars": 0.1416,
+     "chars_per_sec": 7062721.7
+    },
+    {
+     "language": "python",
+     "mode": "features",
+     "docs": 20,
+     "median_chars": 49985,
+     "median_ms": 59.0239,
+     "p95_ms": 64.2726,
+     "samples": 60,
+     "ms_per_1000_chars": 1.1808,
+     "chars_per_sec": 846860.3
+    },
+    {
+     "language": "rust",
+     "mode": "features",
+     "docs": 20,
+     "median_chars": 49985,
+     "median_ms": 5.4419,
+     "p95_ms": 7.7325,
+     "samples": 60,
+     "ms_per_1000_chars": 0.1089,
+     "chars_per_sec": 9185211.0
+    },
+    {
+     "language": "swift",
+     "mode": "features",
+     "docs": 20,
+     "median_chars": 49985,
+     "median_ms": 61.6703,
+     "p95_ms": 69.6711,
+     "samples": 60,
+     "ms_per_1000_chars": 1.2338,
+     "chars_per_sec": 810519.8
+    },
+    {
+     "language": "typescript",
+     "mode": "features",
+     "docs": 20,
+     "median_chars": 49985,
+     "median_ms": 11.9682,
+     "p95_ms": 15.0637,
+     "samples": 60,
+     "ms_per_1000_chars": 0.2394,
+     "chars_per_sec": 4176484.4
+    },
+    {
+     "language": "python",
+     "mode": "neural",
+     "docs": 20,
+     "median_chars": 49985,
+     "median_ms": 1385.9469,
+     "p95_ms": 1901.7858,
+     "samples": 20,
+     "ms_per_1000_chars": 27.7273,
+     "chars_per_sec": 36065.6
+    },
+    {
+     "language": "rust",
+     "mode": "neural",
+     "docs": 20,
+     "median_chars": 49985,
+     "median_ms": 1390.2677,
+     "p95_ms": 1848.3735,
+     "samples": 20,
+     "ms_per_1000_chars": 27.8137,
+     "chars_per_sec": 35953.5
+    }
+   ],
+   "digests": {
+    "features": {
+     "python": {
+      "digest": [
+       "e98a0b08ab3fb0fbdf4abeaba0bbd04f74634157560be66da4dcb53b8f0c9cec"
+      ],
+      "digest_noscore": [
+       "aff10219b51e44209dc339a0cd200ab40bd3c044aa91d175c7fb81731c09635e"
+      ],
+      "input_digest": [
+       "19047bbf89960383eee8fd05391f0fc44e14a341dc599ebbc90f81f92b18d247"
+      ]
+     },
+     "rust": {
+      "digest": [
+       "e98a0b08ab3fb0fbdf4abeaba0bbd04f74634157560be66da4dcb53b8f0c9cec"
+      ],
+      "digest_noscore": [
+       "aff10219b51e44209dc339a0cd200ab40bd3c044aa91d175c7fb81731c09635e"
+      ],
+      "input_digest": [
+       "19047bbf89960383eee8fd05391f0fc44e14a341dc599ebbc90f81f92b18d247"
+      ]
+     },
+     "swift": {
+      "digest": [
+       "e98a0b08ab3fb0fbdf4abeaba0bbd04f74634157560be66da4dcb53b8f0c9cec"
+      ],
+      "digest_noscore": [
+       "aff10219b51e44209dc339a0cd200ab40bd3c044aa91d175c7fb81731c09635e"
+      ],
+      "input_digest": [
+       "19047bbf89960383eee8fd05391f0fc44e14a341dc599ebbc90f81f92b18d247"
+      ]
+     },
+     "typescript": {
+      "digest": [
+       "e98a0b08ab3fb0fbdf4abeaba0bbd04f74634157560be66da4dcb53b8f0c9cec"
+      ],
+      "digest_noscore": [
+       "aff10219b51e44209dc339a0cd200ab40bd3c044aa91d175c7fb81731c09635e"
+      ],
+      "input_digest": [
+       "19047bbf89960383eee8fd05391f0fc44e14a341dc599ebbc90f81f92b18d247"
+      ]
+     },
+     "match": true,
+     "match_noscore": true,
+     "input_match": true
+    },
+    "rules": {
+     "python": {
+      "digest": [
+       "cb61830b9141f47ebc6c43d586fe21a33952c3ef1854a015417be5c601c2d616"
+      ],
+      "digest_noscore": [
+       "cb61830b9141f47ebc6c43d586fe21a33952c3ef1854a015417be5c601c2d616"
+      ],
+      "input_digest": [
+       "19047bbf89960383eee8fd05391f0fc44e14a341dc599ebbc90f81f92b18d247"
+      ]
+     },
+     "rust": {
+      "digest": [
+       "cb61830b9141f47ebc6c43d586fe21a33952c3ef1854a015417be5c601c2d616"
+      ],
+      "digest_noscore": [
+       "cb61830b9141f47ebc6c43d586fe21a33952c3ef1854a015417be5c601c2d616"
+      ],
+      "input_digest": [
+       "19047bbf89960383eee8fd05391f0fc44e14a341dc599ebbc90f81f92b18d247"
+      ]
+     },
+     "swift": {
+      "digest": [
+       "cb61830b9141f47ebc6c43d586fe21a33952c3ef1854a015417be5c601c2d616"
+      ],
+      "digest_noscore": [
+       "cb61830b9141f47ebc6c43d586fe21a33952c3ef1854a015417be5c601c2d616"
+      ],
+      "input_digest": [
+       "19047bbf89960383eee8fd05391f0fc44e14a341dc599ebbc90f81f92b18d247"
+      ]
+     },
+     "typescript": {
+      "digest": [
+       "cb61830b9141f47ebc6c43d586fe21a33952c3ef1854a015417be5c601c2d616"
+      ],
+      "digest_noscore": [
+       "cb61830b9141f47ebc6c43d586fe21a33952c3ef1854a015417be5c601c2d616"
+      ],
+      "input_digest": [
+       "19047bbf89960383eee8fd05391f0fc44e14a341dc599ebbc90f81f92b18d247"
+      ]
+     },
+     "match": true,
+     "match_noscore": true,
+     "input_match": true
+    },
+    "scan": {
+     "python": {
+      "digest": [
+       "3ceafe3efcc5195e16c388a0b6f6ef035e29d71e8b16fe63819492e1139ff083"
+      ],
+      "digest_noscore": [
+       "3ceafe3efcc5195e16c388a0b6f6ef035e29d71e8b16fe63819492e1139ff083"
+      ],
+      "input_digest": [
+       "19047bbf89960383eee8fd05391f0fc44e14a341dc599ebbc90f81f92b18d247"
+      ]
+     },
+     "rust": {
+      "digest": [
+       "3ceafe3efcc5195e16c388a0b6f6ef035e29d71e8b16fe63819492e1139ff083"
+      ],
+      "digest_noscore": [
+       "3ceafe3efcc5195e16c388a0b6f6ef035e29d71e8b16fe63819492e1139ff083"
+      ],
+      "input_digest": [
+       "19047bbf89960383eee8fd05391f0fc44e14a341dc599ebbc90f81f92b18d247"
+      ]
+     },
+     "swift": {
+      "digest": [
+       "3ceafe3efcc5195e16c388a0b6f6ef035e29d71e8b16fe63819492e1139ff083"
+      ],
+      "digest_noscore": [
+       "3ceafe3efcc5195e16c388a0b6f6ef035e29d71e8b16fe63819492e1139ff083"
+      ],
+      "input_digest": [
+       "19047bbf89960383eee8fd05391f0fc44e14a341dc599ebbc90f81f92b18d247"
+      ]
+     },
+     "typescript": {
+      "digest": [
+       "3ceafe3efcc5195e16c388a0b6f6ef035e29d71e8b16fe63819492e1139ff083"
+      ],
+      "digest_noscore": [
+       "3ceafe3efcc5195e16c388a0b6f6ef035e29d71e8b16fe63819492e1139ff083"
+      ],
+      "input_digest": [
+       "19047bbf89960383eee8fd05391f0fc44e14a341dc599ebbc90f81f92b18d247"
+      ]
+     },
+     "match": true,
+     "match_noscore": true,
+     "input_match": true
+    },
+    "neural": {
+     "python": {
+      "digest": [
+       "97bfde914652f709f738e07795749b212203c69822e060365efdb5a9ef24e278"
+      ],
+      "digest_noscore": [
+       "1469d96f282fa14da26d4b7d40971adc5900abfccf82ebba9f8712479cd03c41"
+      ],
+      "input_digest": [
+       "19047bbf89960383eee8fd05391f0fc44e14a341dc599ebbc90f81f92b18d247"
+      ]
+     },
+     "rust": {
+      "digest": [
+       "36bb0b5006a727a422c30566877df6b035062b0dbeed8b441f617e7e41732dae"
+      ],
+      "digest_noscore": [
+       "1469d96f282fa14da26d4b7d40971adc5900abfccf82ebba9f8712479cd03c41"
+      ],
+      "input_digest": [
+       "19047bbf89960383eee8fd05391f0fc44e14a341dc599ebbc90f81f92b18d247"
+      ]
+     },
+     "match": false,
+     "match_noscore": true,
+     "input_match": true
+    }
+   },
+   "neural_stages": {},
+   "model_load_s": {
+    "python": 0.63,
+    "rust": 0.173
+   },
+   "per_rep": {
+    "scan": {
+     "python": [
+      43.5998,
+      43.0344,
+      43.5577
+     ],
+     "typescript": [
+      4.7649,
+      6.4916,
+      4.9909
+     ],
+     "rust": [
+      2.8598,
+      2.941,
+      2.9808
+     ],
+     "swift": [
+      20.354,
+      20.2452,
+      19.9446
+     ]
+    },
+    "rules": {
+     "python": [
+      46.1945,
+      47.0446,
+      46.737
+     ],
+     "typescript": [
+      6.8735,
+      7.2355,
+      7.1876
+     ],
+     "rust": [
+      3.5491,
+      3.5097,
+      3.56
+     ],
+     "swift": [
+      23.1151,
+      22.7946,
+      23.4881
+     ]
+    },
+    "features": {
+     "python": [
+      59.1587,
+      59.6917,
+      57.7755
+     ],
+     "typescript": [
+      11.1745,
+      13.0686,
+      12.5334
+     ],
+     "rust": [
+      5.929,
+      7.074,
+      5.1865
+     ],
+     "swift": [
+      62.1994,
+      61.8736,
+      60.612
+     ]
+    },
+    "neural": {
+     "python": [
+      1385.9469
+     ],
+     "rust": [
+      1390.2677
+     ]
+    }
+   }
+  }
+ }
+}

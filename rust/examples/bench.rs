@@ -166,7 +166,9 @@ fn per_note<F: Fn(&str)>(f: F, notes: &[String]) -> Vec<f64> {
 
 fn main() {
     let mode = std::env::args().nth(1).unwrap_or_default();
-    let notes = load_notes("../e2e/parity/notes.jsonl");
+    let notes_path = std::env::var("BENCH_NOTES_PATH")
+        .unwrap_or_else(|_| "../e2e/parity/notes.jsonl".to_string());
+    let notes = load_notes(&notes_path);
     let idig = input_digest(&notes);
     match mode.as_str() {
         "scan" => {

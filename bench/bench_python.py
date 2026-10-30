@@ -32,7 +32,9 @@ sys.path.insert(0, os.path.join(HERE, "..", "python"))
 
 import phi_redact  # noqa: E402
 
-NOTES_PATH = os.path.join(HERE, "..", "e2e", "parity", "notes.jsonl")
+NOTES_PATH = os.environ.get(
+    "BENCH_NOTES_PATH",
+    os.path.join(HERE, "..", "e2e", "parity", "notes.jsonl"))
 CORPUS_PATH = os.path.join(HERE, "corpus.jsonl")
 
 FEATURE_KWARGS = dict(

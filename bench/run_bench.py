@@ -17,6 +17,14 @@ languages' input digests are equal and their output digests match.
 
     python3 bench/run_bench.py            # full sweep, writes results.json
     NEURAL=0 python3 bench/run_bench.py   # skip neural modes
+    python3 bench/run_bench.py --lengths  # document-length curve,
+                                          # writes length_results.json
+
+The --lengths sweep reuses this driver (same harnesses, same
+interleaving, same digest gate) over the length-tier corpora from
+bench/gen_length_tiers.py, passed to the harnesses via the
+BENCH_NOTES_PATH override each harness honors. The canonical sweep
+above is untouched by it.
 """
 import hashlib
 import json
@@ -70,10 +78,12 @@ def ort_dylib():
     return hits[0] if hits else None
 
 
-def run_harness(lang, mode, warmups, reps, extra=()):
+def run_harness(lang, mode, warmups, reps, extra=(), notes_path=None):
     env = dict(os.environ)
     env["BENCH_WARMUPS"] = str(warmups)
     env["BENCH_REPS"] = str(reps)
+    if notes_path:
+        env["BENCH_NOTES_PATH"] = notes_path
     if lang == "python":
         env["PYTHONPATH"] = os.path.join(ROOT, "python")
         cmd = [VENV_PY, os.path.join(HERE, "bench_python.py"), mode, *extra]
@@ -132,6 +142,34 @@ def file_sha256(path):
         for chunk in iter(lambda: f.read(1 << 20), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+def cmd_out(cmd):
+    return subprocess.run(cmd, capture_output=True, text=True).stdout.strip()
+
+
+def cpu_name():
+    with open("/proc/cpuinfo") as f:
+        for line in f:
+            if line.startswith("model name"):
+                return line.split(":", 1)[1].strip()
+    return ""
+
+
+def environment_block():
+    return {
+        "python": cmd_out([VENV_PY, "--version"]),
+        "node": cmd_out(["node", "--version"]),
+        "rustc": cmd_out(["rustc", "--version"]),
+        "swift": cmd_out([SWIFT_BIN, "--version"]).splitlines()[0]
+                 if os.path.exists(SWIFT_BIN) else "",
+        "cpu": cpu_name(),
+        "cpus": os.cpu_count(),
+        "os": " ".join(os.uname()[:3:2]),
+        "onnxruntime": "1.30 (python wheel; rust loads the same "
+                       "wheel's libonnxruntime.so via ort load-dynamic)",
+        "model": "phi-redact-v9-int8.onnx (v9 int8, 11.3 MB)",
+    }
 
 
 def main() -> int:
@@ -249,30 +287,9 @@ def main() -> int:
         entry["input_match"] = len(all_in) == 1
         digest_report[mode] = entry
 
-    def cmd_out(cmd):
-        return subprocess.run(cmd, capture_output=True, text=True).stdout.strip()
-
-    cpu = ""
-    with open("/proc/cpuinfo") as f:
-        for line in f:
-            if line.startswith("model name"):
-                cpu = line.split(":", 1)[1].strip()
-                break
     results = {
         "format": 2,
-        "environment": {
-            "python": cmd_out([VENV_PY, "--version"]),
-            "node": cmd_out(["node", "--version"]),
-            "rustc": cmd_out(["rustc", "--version"]),
-            "swift": cmd_out([SWIFT_BIN, "--version"]).splitlines()[0]
-                     if os.path.exists(SWIFT_BIN) else "",
-            "cpu": cpu,
-            "cpus": os.cpu_count(),
-            "os": " ".join(os.uname()[:3:2]),
-            "onnxruntime": "1.30 (python wheel; rust loads the same "
-                           "wheel's libonnxruntime.so via ort load-dynamic)",
-            "model": "phi-redact-v9-int8.onnx (v9 int8, 11.3 MB)",
-        },
+        "environment": environment_block(),
         "corpus": {
             "notes": {"path": "e2e/parity/notes.jsonl", "count": 15,
                       "file_sha256": notes_sha},
@@ -322,5 +339,272 @@ def main() -> int:
     return 0
 
 
+LENGTH_TIERS = [500, 2000, 10000, 50000]
+LENGTH_ROUNDS = 3
+# Neural passes at length are seconds per document, not the fixture
+# notes' ~1.5 ms: rounds are sized per tier so the sweep stays
+# tractable (documents are the samples; even 1 round is 20-100).
+LENGTH_NEURAL_ROUNDS = {500: 2, 2000: 2, 10000: 1, 50000: 1}
+LENGTH_STAGES_ROUNDS = {500: 2, 2000: 2, 10000: 1, 50000: 1}
+
+
+def neural_config_path():
+    import tempfile
+    assets = tempfile.mkdtemp(prefix="bench-assets-")
+    config = os.path.join(assets, "config.json")
+    tags = json.load(open(TAGS))
+    with open(config, "w") as f:
+        json.dump({"id2label": {str(i): t for i, t in enumerate(tags)},
+                   "label2id": {t: i for i, t in enumerate(tags)}}, f)
+    return config
+
+
+def _digest_report(digests):
+    report = {}
+    for mode, by_lang in sorted(digests.items()):
+        entry = {}
+        for lang, d in sorted(by_lang.items()):
+            entry[lang] = {
+                "digest": sorted(d["digest"]),
+                "digest_noscore": sorted(d["digest_noscore"]),
+                "input_digest": sorted(d["input_digest"]),
+            }
+        all_d = {x for d in by_lang.values() for x in d["digest"]}
+        all_ns = {x for d in by_lang.values() for x in d["digest_noscore"]}
+        all_in = {x for d in by_lang.values() for x in d["input_digest"]}
+        entry["match"] = len(all_d) == 1
+        entry["match_noscore"] = len(all_ns) == 1
+        entry["input_match"] = len(all_in) == 1
+        report[mode] = entry
+    return report
+
+
+def _length_skeleton():
+    return {
+        "format": 1,
+        "kind": "length_curve",
+        "environment": environment_block(),
+        "method": {
+            "tiers": "bench/gen_length_tiers.py (seeded, deterministic; "
+                     "each tier file regen-checked against a fresh "
+                     "generator run, SHA-256)",
+            "per_note": f"{LENGTH_ROUNDS} rounds x tier docs, "
+                        "languages interleaved with rotating order "
+                        "per round; 2 warm-up passes in round 0 only; "
+                        "raw samples pooled and aggregated centrally "
+                        "(median + nearest-rank p95)",
+            "neural": "rounds per tier sized to the per-document "
+                      "cost (neural predict is seconds per document "
+                      "at the top tiers): neural "
+                      f"{LENGTH_NEURAL_ROUNDS}, neural-stages "
+                      f"{LENGTH_STAGES_ROUNDS} (python + rust); same "
+                      "interleaving and stage buckets as the "
+                      "canonical sweep",
+            "digest_gate": "identical to the canonical sweep: a mode "
+                           "at a tier counts as compared only when "
+                           "all languages' input digests are equal "
+                           "and their output digests match",
+        },
+        "tiers": {},
+    }
+
+
+def _write_length_results(results):
+    out_path = os.path.join(HERE, "length_results.json")
+    tmp = out_path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(results, f, indent=2)
+    os.replace(tmp, out_path)
+    return out_path
+
+
+def run_lengths() -> int:
+    """Document-length curve: the canonical per-note modes (scan,
+    rules, features) plus neural/neural-stages, run over the
+    length-tier corpora from bench/gen_length_tiers.py under the
+    same interleaving and digest gate as the canonical sweep.
+    Writes bench/length_results.json (format 1); results.json is
+    not touched.
+
+    Results are written incrementally (atomically, after each
+    tier's local section and again after its neural section) and
+    merged with any tiers already present, so a killed run loses
+    at most the section in flight. `--tier N` restricts the run to
+    one tier; `--neural-only` recomputes just a tier's neural
+    sections; LENGTH_NEURAL_MODES=neural|neural-stages restricts
+    the neural modes run."""
+    args = sys.argv[1:]
+    only_tier = (int(args[args.index("--tier") + 1])
+                 if "--tier" in args else None)
+    neural_only = "--neural-only" in args
+    modes_env = os.environ.get("LENGTH_NEURAL_MODES", "both")
+    neural_modes = [("neural", LENGTH_NEURAL_ROUNDS),
+                    ("neural-stages", LENGTH_STAGES_ROUNDS)]
+    if modes_env == "neural":
+        neural_modes = neural_modes[:1]
+    elif modes_env == "neural-stages":
+        neural_modes = neural_modes[1:]
+
+    out_path = os.path.join(HERE, "length_results.json")
+    if os.path.exists(out_path):
+        with open(out_path) as f:
+            results = json.load(f)
+    else:
+        results = _length_skeleton()
+    tiers_out = results.setdefault("tiers", {})
+
+    for tier in ([only_tier] if only_tier else LENGTH_TIERS):
+        path = os.path.join(HERE, "lengths", f"tier_{tier}.jsonl")
+        # Corpus audit: checked-in tier file must equal a fresh
+        # gen_length_tiers.py run for that tier (seeded).
+        gen = subprocess.run(
+            [sys.executable,
+             os.path.join(HERE, "gen_length_tiers.py"), str(tier)],
+            capture_output=True)
+        regen_sha = hashlib.sha256(gen.stdout).hexdigest()
+        tier_sha = file_sha256(path)
+        with open(path) as f:
+            docs = [json.loads(ln)["note"] for ln in f if ln.strip()]
+        lens = sorted(len(d) for d in docs)
+        median_chars = lens[len(lens) // 2]
+        corpus = {
+            "path": f"bench/lengths/tier_{tier}.jsonl",
+            "target_chars": tier,
+            "count": len(docs),
+            "chars": {"min": lens[0], "median": median_chars,
+                      "mean": round(sum(lens) / len(lens)),
+                      "max": lens[-1]},
+            "file_sha256": tier_sha,
+            "regen_sha256": regen_sha,
+            "regen_matches_file": regen_sha == tier_sha,
+        }
+
+        old = tiers_out.get(str(tier), {})
+        digests = {}
+        pooled = {}
+        per_rep = {}
+        stages = {}
+        load_s = {}
+
+        def note_digest(mode, lang, out):
+            d = digests.setdefault(mode, {}).setdefault(
+                lang, {"digest": set(), "digest_noscore": set(),
+                       "input_digest": set()})
+            d["digest"].add(out["digest"])
+            d["digest_noscore"].add(out["digest_noscore"])
+            d["input_digest"].add(out["input_digest"])
+
+        def build_entry():
+            fresh = {}
+            for (mode, lang), samples in sorted(pooled.items()):
+                a = agg(samples)
+                fresh[(mode, lang)] = {
+                    "language": lang, "mode": mode, "docs": len(docs),
+                    "median_chars": median_chars, **a,
+                    "ms_per_1000_chars": round(
+                        a["median_ms"] / median_chars * 1000, 4),
+                    "chars_per_sec": round(
+                        median_chars / a["median_ms"] * 1000, 1),
+                }
+            merged = {(r["mode"], r["language"]): r
+                      for r in old.get("runs", [])}
+            merged.update(fresh)
+            order = {m: i for i, m in enumerate(
+                ["scan", "rules", "features", "neural"])}
+            runs = sorted(merged.values(),
+                          key=lambda r: (order.get(r["mode"], 9),
+                                         r["language"]))
+            merged_digests = dict(old.get("digests", {}))
+            merged_digests.update(_digest_report(digests))
+            merged_per_rep = dict(old.get("per_rep", {}))
+            merged_per_rep.update(per_rep)
+            return {
+                "corpus": corpus,
+                "runs": runs,
+                "digests": merged_digests,
+                "neural_stages": (
+                    {lang: {stage: agg(vals)
+                            for stage, vals in st.items()}
+                     for lang, st in stages.items()}
+                    if stages else old.get("neural_stages", {})),
+                "model_load_s": (
+                    {lang: round(median(v), 3)
+                     for lang, v in load_s.items()}
+                    if load_s else old.get("model_load_s", {})),
+                "per_rep": merged_per_rep,
+            }
+
+        if not neural_only:
+            for mode in PER_NOTE_MODES:
+                for rnd in range(LENGTH_ROUNDS):
+                    for lang in rotate(LANGS, rnd):
+                        out = run_harness(lang, mode,
+                                          warmups=2 if rnd == 0 else 0,
+                                          reps=1, notes_path=path)
+                        key = (mode, lang)
+                        pooled.setdefault(key, []).extend(
+                            out["samples_ms"])
+                        per_rep.setdefault(mode, {}).setdefault(
+                            lang, []).append(
+                            round(median(out["samples_ms"]), 4))
+                        note_digest(mode, lang, out)
+            tiers_out[str(tier)] = build_entry()
+            _write_length_results(results)
+            print(f"tier {tier}: local section written", flush=True)
+
+        if NEURAL:
+            config = neural_config_path()
+            for mode, rounds_map in neural_modes:
+                for rnd in range(rounds_map[tier]):
+                    for lang in rotate(NEURAL_LANGS, rnd):
+                        labels = config if lang == "python" else TAGS
+                        out = run_harness(lang, mode,
+                                          warmups=2 if rnd == 0 else 0,
+                                          reps=1,
+                                          extra=(MODEL, TOK, labels),
+                                          notes_path=path)
+                        load_s.setdefault(lang, []).append(
+                            out["model_load_s"])
+                        note_digest(mode, lang, out)
+                        if mode == "neural":
+                            pooled.setdefault((mode, lang), []).extend(
+                                out["samples_ms"])
+                            per_rep.setdefault(mode, {}).setdefault(
+                                lang, []).append(
+                                round(median(out["samples_ms"]), 4))
+                        else:
+                            st = stages.setdefault(lang, {
+                                "tokenize": [], "inference": [],
+                                "post": [], "total": []})
+                            st["tokenize"].extend(
+                                out["stages_ms"]["tokenize"])
+                            st["inference"].extend(
+                                out["stages_ms"]["inference"])
+                            st["post"].extend(out["stages_ms"]["post"])
+                            st["total"].extend(out["samples_ms"])
+                            per_rep.setdefault(mode, {}).setdefault(
+                                lang, []).append(
+                                round(median(out["samples_ms"]), 4))
+
+        tiers_out[str(tier)] = build_entry()
+        _write_length_results(results)
+        print(f"tier {tier}: {len(docs)} docs, median "
+              f"{median_chars} chars — done", flush=True)
+
+    any_mismatch = []
+    for t, entry in tiers_out.items():
+        for mode, d in entry.get("digests", {}).items():
+            if not (d["match"] and d["input_match"]):
+                any_mismatch.append(f"tier {t}/{mode}")
+    print(f"wrote {out_path}")
+    if any_mismatch:
+        print(f"DIGEST MISMATCH in: {any_mismatch}", file=sys.stderr)
+        return 1
+    print("all output digests match across languages at every tier")
+    return 0
+
+
 if __name__ == "__main__":
+    if "--lengths" in sys.argv:
+        raise SystemExit(run_lengths())
     raise SystemExit(main())
